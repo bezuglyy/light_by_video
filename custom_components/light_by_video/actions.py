@@ -215,6 +215,15 @@ class ActionEngine:
         hold = max(5, int(zone.get("hold_sec") or 300))
         max_on = max(hold, int(zone.get("max_on_sec") or 1800))
 
+        if was_on and not zone.get("restore"):
+            # устройство уже горело до нас и мы не должны им управлять —
+            # не ставим таймер, иначе состояние «залипает»
+            await self._async_event(
+                EVENT_SKIPPED,
+                {"zone": zone.get("name"), "reason": "устройство уже включено — не управляю", "entity": entity},
+            )
+            return {"ok": True, "reason": "уже включено — не управляю", "skipped": True}
+
         ok = await self._async_set(entity, True, zone=zone)
         if not ok:
             return {"ok": False, "reason": "команда не выполнена"}
@@ -237,13 +246,12 @@ class ActionEngine:
         return {"ok": True, "reason": "включено", "hold": hold, "was_on": was_on}
 
     async def async_stop(self, entity: str, reason: str = "выключено вручную") -> None:
-        if entity in self._active:
-            await self._async_turn_off(entity, reason)
-            await self._async_save()
+        await self._async_turn_off(entity, reason, force=True)
+        await self._async_save()
 
     async def async_stop_all(self, reason: str = "выключено вручную") -> None:
         for entity in list(self._active):
-            await self._async_turn_off(entity, reason)
+            await self._async_turn_off(entity, reason, force=True)
         await self._async_save()
 
     def zone_status(self, zone: dict[str, Any]) -> dict[str, Any]:
@@ -322,7 +330,7 @@ class ActionEngine:
             return
         await self._async_turn_off(entity, "истекло время удержания")
 
-    async def _async_turn_off(self, entity: str, reason: str) -> None:
+    async def _async_turn_off(self, entity: str, reason: str, force: bool = False) -> None:
         item = self._active.pop(entity, None)
         for cancel in self._handles.pop(entity, []):
             try:
@@ -333,7 +341,7 @@ class ActionEngine:
             return
 
         state = self.hass.states.get(entity)
-        if item.get("was_on") and not self._restore_allowed(entity):
+        if not force and item.get("was_on") and not self._restore_allowed(entity):
             await self._async_event(
                 EVENT_SKIPPED, {"entity": entity, "reason": "горело до нас — не выключаем", "detail": reason}
             )
