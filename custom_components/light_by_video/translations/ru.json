@@ -18,7 +18,9 @@
       "no_source": "Укажите камеру или адрес потока",
       "cannot_connect": "Кадр не получен — проверьте адрес, логин и пароль"
     },
-    "abort": {"already_configured": "Этот источник уже добавлен"}
+    "abort": {
+      "already_configured": "Этот источник уже добавлен"
+    }
   },
   "options": {
     "step": {
@@ -36,12 +38,35 @@
     }
   },
   "entity": {
-    "binary_sensor": {"source": {"name": "Источник кадра"}},
-    "sensor": {
-      "last_motion": {"name": "Последнее движение"},
-      "motion_count": {"name": "Движений за сутки"},
-      "frame_change": {"name": "Изменение кадра"}
+    "binary_sensor": {
+      "source": {
+        "name": "Источник кадра"
+      }
     },
-    "switch": {"actions": {"name": "Действия"}}
+    "sensor": {
+      "last_motion": {
+        "name": "Последнее движение"
+      },
+      "motion_count": {
+        "name": "Движений за сутки"
+      },
+      "frame_change": {
+        "name": "Изменение кадра"
+      },
+      "status": {
+        "name": "Статус"
+      },
+      "last_action": {
+        "name": "Последнее действие"
+      },
+      "next_event": {
+        "name": "Ближайшее выключение"
+      }
+    },
+    "switch": {
+      "actions": {
+        "name": "Действия"
+      }
+    }
   }
 }
