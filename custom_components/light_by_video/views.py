@@ -160,6 +160,7 @@ class LightByVideoStateView(HomeAssistantView):
                 "reason": data.get("reason"),
                 "zone_states": data.get("zones") or [],
                 "actions": data.get("actions") or coordinator.actions.active_info(),
+                "zone_actions": data.get("zone_actions") or {},
                 "objects": data.get("objects"),
                 "detector_mode": data.get("detector_mode"),
                 "last_motion": data.get("last_motion"),
@@ -314,6 +315,12 @@ class LightByVideoTestView(HomeAssistantView):
             body: dict[str, Any] = await request.json()
         except (json.JSONDecodeError, ValueError):
             body = {}
+
+        if body.get("action") == "reset_cooldown":
+            zone_id = str(body.get("zone_id") or "")
+            coordinator.actions.reset_cooldown(zone_id)
+            await coordinator.async_request_refresh()
+            return web.json_response({"ok": True, "reset": zone_id})
 
         if body.get("action") in ("on", "off"):
             zone_id = str(body.get("zone_id") or "")
