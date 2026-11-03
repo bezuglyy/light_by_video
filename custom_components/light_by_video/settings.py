@@ -24,8 +24,6 @@ from .const import (
     CONF_STUCK,
     CONF_SNAPSHOT_URL,
     CONF_SOURCE_PASS,
-    CONF_SUN_ENTITY,
-    CONF_SUN_OFFSET,
     CONF_SOURCE_USER,
     CONF_ZONES,
     DAYS_ALL,
@@ -259,15 +257,16 @@ def _sun_mode(value: Any) -> str:
 
 
 def _light_mode(zone: dict[str, Any]) -> str:
-    """Условие освещённости зоны: any | dark | light | lux (с миграцией старого `sun`)."""
+    """Ограничение по свету: any | lux.
+
+    «Только в темноте / только днём» теперь выражается периодом работы (закат↔рассвет),
+    чтобы не держать два одинаковых механизма. При миграции такие зоны получают период.
+    """
     text = str(zone.get("light_mode") or "").strip().lower()
+    if text == "lux":
+        return "lux"
     if text in ZONE_LIGHT_MODES:
-        return text
-    sun = _sun_mode(zone.get("sun"))
-    if sun == "night":
-        return "dark"
-    if sun == "day":
-        return "light"
+        return "any"
     try:
         lux = float(zone.get("lux_below") or 0)
     except (TypeError, ValueError):
@@ -370,24 +369,18 @@ class Settings:
         self.source_pass = str(merged.get(CONF_SOURCE_PASS) or "")
         self.scan_interval = _num(merged.get(CONF_SCAN_INTERVAL), DEFAULT_SCAN_INTERVAL, 1.0, 30.0)
         self.enabled = bool(merged.get(CONF_ENABLED, True))
-        self.sun_entity = str(merged.get(CONF_SUN_ENTITY) or "sun.sun").strip() or "sun.sun"
-        try:
-            self.sun_offset_min = max(-180, min(180, int(merged.get(CONF_SUN_OFFSET) or 0)))
-        except (TypeError, ValueError):
-            self.sun_offset_min = 0
         rules = merged.get(CONF_INTERLOCKS)
         self.interlocks = [
             normalize_interlock(r, i + 1) for i, r in enumerate(rules or []) if isinstance(r, dict)
         ][:MAX_INTERLOCKS]
         self.calibration = normalize_calibration(merged.get(CONF_CALIBRATION))
-        raw_schedules = merged.get(CONF_SCHEDULES)
+        raw_schedules = merged.get(CONF_SCHEDULES) or []
         self.migrated_periods = 0
-        if not raw_schedules:
-            migrated = self._periods_from_zone_gates(merged.get(CONF_ZONES))
-            if migrated:
-                merged[CONF_SCHEDULES] = migrated
-                raw_schedules = migrated
-                self.migrated_periods = len(migrated)
+        migrated = self._periods_from_zone_gates(merged.get(CONF_ZONES), raw_schedules)
+        if migrated:
+            merged[CONF_SCHEDULES] = list(raw_schedules) + migrated
+            raw_schedules = merged[CONF_SCHEDULES]
+            self.migrated_periods = len(migrated)
         self.schedules = [
             normalize_schedule(item, i + 1)
             for i, item in enumerate(raw_schedules or [])
@@ -463,40 +456,46 @@ class Settings:
                 options[CONF_INTERLOCKS] = [
                     normalize_interlock(r, i + 1) for i, r in enumerate(value) if isinstance(r, dict)
                 ][:MAX_INTERLOCKS]
-            elif key == CONF_SUN_ENTITY:
-                options[key] = str(value or "sun.sun")
-            elif key == CONF_SUN_OFFSET:
-                try:
-                    options[key] = max(-180, min(180, int(value)))
-                except (TypeError, ValueError):
-                    options[key] = 0
             elif key == CONF_SCAN_INTERVAL:
                 options[key] = _num(value, DEFAULT_SCAN_INTERVAL, 1.0, 30.0)
         self.hass.config_entries.async_update_entry(self.entry, options=options)
         self.reload()
 
     @staticmethod
-    def _periods_from_zone_gates(zones: Any) -> list[dict[str, Any]]:
-        """Разово перенести ограничения зоны (время/дни/солнце) в периоды работы."""
+    def _periods_from_zone_gates(zones: Any, existing: Any = None) -> list[dict[str, Any]]:
+        """Разово перенести ограничения зоны (время/дни/светло-темно) в периоды работы."""
         out: list[dict[str, Any]] = []
         if not isinstance(zones, list):
             return out
+        covered = {
+            str(item.get("zone_id") or "")
+            for item in (existing or [])
+            if isinstance(item, dict) and item.get("zone_id")
+        }
+        used_ids = {str(item.get("id") or "") for item in (existing or []) if isinstance(item, dict)}
         for index, zone in enumerate(zones):
             if not isinstance(zone, dict):
                 continue
             zone_id = str(zone.get("id") or f"z{index + 1}")
+            if zone_id in covered:
+                continue
             days = zone.get("days")
             if not isinstance(days, list) or len(days) != 7:
                 days = None
             time_from = _hhmm(zone.get("time_from"))
             time_to = _hhmm(zone.get("time_to"))
             sun = _sun_mode(zone.get("sun"))
+            mode = str(zone.get("light_mode") or "").strip().lower()
+            if sun == "any" and mode in ("dark", "light"):
+                sun = "night" if mode == "dark" else "day"
             item: dict[str, Any] | None = None
             if time_from and time_to:
                 item = {"trigger": "time", "time_from": time_from, "time_to": time_to}
             elif sun in ("night", "day"):
                 item = {"trigger": "sunset" if sun == "night" else "sunrise"}
             if item is None:
+                continue
+            if f"mig{zone_id}" in used_ids:
                 continue
             item.update(
                 {
@@ -525,8 +524,6 @@ class Settings:
             "schedules": copy.deepcopy(self.schedules),
             "stuck": copy.deepcopy(self.stuck),
             "catchup_min": self.catchup_min,
-            "sun_entity": self.sun_entity,
-            "sun_offset_min": self.sun_offset_min,
             "interlocks": self.interlocks,
             "detector": self.detector,
             "zones": copy.deepcopy(self.zones),
