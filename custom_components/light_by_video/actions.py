@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
@@ -143,13 +142,6 @@ class ActionEngine:
             return False, f"устройство {entity} недоступно"
 
         light_mode = str(zone.get("light_mode") or "any")
-        if light_mode in ("dark", "light"):
-            night = _is_night(self.hass, self.settings)
-            if light_mode == "dark" and not night:
-                return False, "по условию — только в темноте (сейчас светло)"
-            if light_mode == "light" and night:
-                return False, "по условию — только днём (сейчас темно)"
-
         blocked, reason = _interlocks_block(self.hass, self.settings, zone)
         if blocked:
             return False, reason
@@ -472,26 +464,6 @@ def _text(entry: dict[str, Any]) -> str:
         if entry.get(key):
             parts.append(str(entry[key]))
     return " · ".join(parts)
-
-
-def _is_night(hass, settings) -> bool:
-    """Темно ли сейчас по выбранному сенсору (по умолчанию sun.sun с поправкой k закату)."""
-    entity = getattr(settings, "sun_entity", "sun.sun") or "sun.sun"
-    state = hass.states.get(entity)
-    if state is None:
-        return False
-    if entity == "sun.sun":
-        if state.state == "below_horizon":
-            return True
-        offset = timedelta(minutes=int(getattr(settings, "sun_offset_min", 0) or 0))
-        try:
-            next_set = dt_util.parse_datetime(state.attributes.get("next_setting"))
-        except Exception:  # noqa: BLE001
-            next_set = None
-        if next_set is not None and dt_util.now() >= dt_util.as_local(next_set) + offset:
-            return True
-        return False
-    return str(state.state).lower() in ISH_ON_STATES
 
 
 def _interlock_state(hass, rule: dict) -> tuple[bool, str]:
