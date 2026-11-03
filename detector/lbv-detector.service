@@ -1,0 +1,16 @@
+[Unit]
+Description=Light by Video — детектор объектов (YOLOv5n ONNX, CPU)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/light-by-video-detector
+ExecStart=/opt/light-by-video-detector/venv/bin/python service.py --model models/yolov5n_fp32.onnx --threads 4 --host 0.0.0.0 --port 8099
+Restart=always
+RestartSec=5
+User=root
+Nice=5
+
+[Install]
+WantedBy=multi-user.target
