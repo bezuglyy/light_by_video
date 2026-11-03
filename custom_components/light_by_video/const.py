@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "light_by_video"
 NAME = "Свет по видео"
 MANUFACTURER = "techlan.su"
-VERSION = "0.11.0"
+VERSION = "0.13.0"
 
 # --- ключи настроек (config entry data/options) ---
 CONF_CAMERA_ENTITY = "camera_entity"
@@ -23,7 +23,8 @@ CONF_INTERLOCKS = "interlocks"  # запреты по сенсорам
 CONF_SUN_ENTITY = "sun_entity"  # сенсор «темно» (по умолчанию sun.sun)
 CONF_SUN_OFFSET = "sun_offset_min"  # поправка к закату, минуты (минус — раньше)
 CONF_CALIBRATION = "calibration"  # данные калибровки масштаба (эталонный объект на кадре)
-CONF_SCHEDULES = "schedules"  # расписания принудительного вкл/выкл
+CONF_SCHEDULES = "schedules"  # периоды, в которых разрешены действия
+CONF_STUCK = "stuck"  # сторож «горит без движения»
 CONF_CATCHUP_MIN = "catchup_min"  # догон пропущенного после простоя, минуты
 
 DEFAULT_GO2RTC_BASE = "http://127.0.0.1:1984"
@@ -63,7 +64,8 @@ DEFAULT_DETECTOR: dict[str, float | int | str] = {
 
 ZONE_ROLES = ("motion", "ignore")
 # Условие по солнцу: any — всегда, night — только после заката, day — только до заката
-SUN_MODES = ("any", "night", "day")
+SUN_MODES = ("any", "night", "day")  # устаревшие значения (миграция в light_mode)
+ZONE_LIGHT_MODES = ("any", "dark", "light", "lux")
 ROLE_MOTION = "motion"
 ROLE_IGNORE = "ignore"
 
@@ -93,12 +95,9 @@ DEFAULT_ZONE: dict = {
     "extend": True,
     "max_on_sec": 1800,
     "restore": False,
-    "sun": "any",
+    "light_mode": "any",  # any | dark | light | lux
     "lux_sensor": "",
     "lux_below": 0.0,
-    "time_from": "",
-    "time_to": "",
-    "days": [0, 1, 2, 3, 4, 5, 6],
     "entity": True,
 }
 
@@ -112,6 +111,7 @@ EVENT_CAMERA_LOST = "camera_lost"
 EVENT_CAMERA_BACK = "camera_back"
 EVENT_LIGHTING = "lighting"
 EVENT_SCHEDULE = "schedule"
+EVENT_STUCK = "stuck"
 EVENT_BUS = f"{DOMAIN}_event"
 
 EVENT_TITLES = {
@@ -123,7 +123,8 @@ EVENT_TITLES = {
     EVENT_CAMERA_LOST: "Источник кадра недоступен",
     EVENT_CAMERA_BACK: "Источник кадра снова доступен",
     EVENT_LIGHTING: "Смена освещения (не движение)",
-    EVENT_SCHEDULE: "Сработало расписание",
+    EVENT_SCHEDULE: "Период работы",
+    EVENT_STUCK: "Горит без движения",
 }
 
 # --- запреты по сенсорам ---
@@ -200,6 +201,14 @@ SCHEDULE_TRIGGER_TITLES = {
     "sunrise": "с рассвета до заката",
 }
 MAX_SCHEDULES = 20
+
+# сторож «устройство горит, а движения нет»
+STUCK_MODES = ("notify", "off")
+DEFAULT_STUCK: dict = {
+    "enabled": True,
+    "grace_min": 10,   # сколько минут держится «горит без нашего таймера», прежде чем сообщить/выключить
+    "mode": "notify",  # notify — только сообщать, off — выключать
+}
 DEFAULT_CATCHUP_MIN = 360  # 6 часов, как в «Времени света»
 DEFAULT_SCHEDULE: dict = {
     "id": "s1",
