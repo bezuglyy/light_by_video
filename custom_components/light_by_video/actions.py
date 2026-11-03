@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
@@ -24,6 +24,8 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
+    IS_OFF_STATES,
+    ISH_ON_STATES,
     EVENT_ACTION_OFF,
     EVENT_ACTION_ON,
     EVENT_BUS,
@@ -122,12 +124,15 @@ class ActionEngine:
 
         sun_mode = str(zone.get("sun") or "any")
         if sun_mode in ("night", "day"):
-            sun = self.hass.states.get("sun.sun")
-            below = sun is not None and sun.state == "below_horizon"
-            if sun_mode == "night" and not below:
+            night = _is_night(self.hass, self.settings)
+            if sun_mode == "night" and not night:
                 return False, "до заката (светло)"
-            if sun_mode == "day" and below:
+            if sun_mode == "day" and night:
                 return False, "после заката (темно)"
+
+        blocked, reason = _interlocks_block(self.hass, self.settings, zone)
+        if blocked:
+            return False, reason
 
         lux_sensor = (zone.get("lux_sensor") or "").strip()
         lux_below = float(zone.get("lux_below") or 0)
@@ -377,3 +382,70 @@ def _in_window(now: datetime, start: Any, end: Any) -> bool:
     if start_m < end_m:
         return start_m <= minutes < end_m
     return minutes >= start_m or minutes < end_m
+
+
+def _is_night(hass, settings) -> bool:
+    """Темно ли сейчас по выбранному сенсору (по умолчанию sun.sun с поправкой k закату)."""
+    entity = getattr(settings, "sun_entity", "sun.sun") or "sun.sun"
+    state = hass.states.get(entity)
+    if state is None:
+        return False
+    if entity == "sun.sun":
+        if state.state == "below_horizon":
+            return True
+        offset = timedelta(minutes=int(getattr(settings, "sun_offset_min", 0) or 0))
+        try:
+            next_set = dt_util.parse_datetime(state.attributes.get("next_setting"))
+        except Exception:  # noqa: BLE001
+            next_set = None
+        if next_set is not None and dt_util.now() >= dt_util.as_local(next_set) + offset:
+            return True
+        return False
+    return str(state.state).lower() in ISH_ON_STATES
+
+
+def _interlock_state(hass, rule: dict) -> tuple[bool, str]:
+    """Сработало ли условие правила. Возвращает (сработало, пояснение)."""
+    entity = (rule.get("entity") or "").strip()
+    if not entity:
+        return False, "не задана сущность"
+    state = hass.states.get(entity)
+    if state is None:
+        return False, "сущность не найдена"
+    op = rule.get("op") or "is_on"
+    attribute = (rule.get("attribute") or "").strip()
+    raw = state.attributes.get(attribute) if attribute else state.state
+    name = state.name or entity
+    if op == "is_on":
+        return str(state.state).lower() in ISH_ON_STATES, f"{name}: {state.state}"
+    if op == "is_off":
+        return str(state.state).lower() in IS_OFF_STATES, f"{name}: {state.state}"
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        return False, f"{name}: нет числа"
+    value = rule.get("value")
+    if value is None:
+        return False, f"{name}: не задано значение"
+    hit = {
+        "above": number > float(value),
+        "below": number < float(value),
+        "equal": abs(number - float(value)) < 1e-9,
+        "not_equal": abs(number - float(value)) > 1e-9,
+    }.get(op, False)
+    return bool(hit), f"{name}: {number} {op} {value}"
+
+
+def _interlocks_block(hass, settings, zone: dict) -> tuple[bool, str]:
+    """Проверить запреты. Разрешено всё, что не в списке; режим warn только пишет в лог."""
+    for rule in getattr(settings, "interlocks", []) or []:
+        if not rule.get("enabled", True):
+            continue
+        hit, text = _interlock_state(hass, rule)
+        if not hit:
+            continue
+        if rule.get("mode") == "warn":
+            _LOGGER.info("light_by_video: предупреждение «%s» (%s)", rule.get("name"), text)
+            continue
+        return True, f"запрет «{rule.get('name')}» ({text})"
+    return False, ""
