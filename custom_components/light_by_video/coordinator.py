@@ -127,13 +127,24 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     # ------------------------------------------------------------------ объекты
-    async def _async_objects(self) -> dict[str, Any]:
-        """Спросить ONNX-детектор объектов (не чаще objects_cache_ms)."""
+    async def _async_objects(self, motion: bool = True) -> dict[str, Any]:
+        """Спросить ONNX-детектор объектов.
+
+        ``motion`` — есть ли изменение кадра: если ``objects_only_on_motion`` включено,
+        инференс выполняется только при движении (экономия CPU), иначе берётся прошлый результат.
+        """
         cfg = self.settings.detector
         now = time.monotonic()
         cache = self._objects or {}
-        if cache and (now - float(cache.get("ts") or 0)) * 1000 < int(cfg.get("objects_cache_ms", 700)):
+        age_ms = (now - float(cache.get("ts") or 0)) * 1000
+        if cache and age_ms < int(cfg.get("objects_cache_ms", 700)):
             return cache
+        if bool(cfg.get("objects_only_on_motion", True)) and not motion:
+            idle_ms = int(cfg.get("objects_idle_cache_ms", 3000))
+            if cache and age_ms < idle_ms:
+                return cache
+            if not cache:
+                return {"ts": now, "objects": [], "count": 0, "ok": True, "error": "", "ms": 0, "skipped": True}
 
         jpeg = await self.async_jpeg()
         if not jpeg:
@@ -241,7 +252,8 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         mode_objects = str(self.settings.detector.get("mode") or "frame") == "objects"
         objects_info: dict[str, Any] = {"count": 0, "ok": True, "error": "", "ms": 0}
         if mode_objects:
-            objects_info = await self._async_objects()
+            motion_any = any(bool(item.get("hit")) for item in (result.get("zones") or []))
+            objects_info = await self._async_objects(motion=motion_any)
 
         zones_out: list[dict[str, Any]] = []
         metrics = {item.get("id"): item for item in (result.get("zones") or [])}
