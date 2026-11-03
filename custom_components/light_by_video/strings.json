@@ -1,0 +1,54 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Свет по видео",
+        "description": "Источник кадра: камера Home Assistant, имя потока go2rtc, URL снапшота или rtsp://…",
+        "data": {
+          "camera_entity": "Камера Home Assistant (необязательно)",
+          "snapshot_url": "Поток go2rtc / URL снапшота / rtsp://…",
+          "go2rtc_base": "Адрес go2rtc",
+          "source_user": "Логин источника (если нужен)",
+          "source_pass": "Пароль источника",
+          "scan_interval": "Интервал опроса, с"
+        }
+      }
+    },
+    "error": {
+      "no_source": "Укажите камеру или адрес потока",
+      "cannot_connect": "Кадр не получен — проверьте адрес, логин и пароль"
+    },
+    "abort": {
+      "already_configured": "Этот источник уже добавлен"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Источник кадра",
+        "data": {
+          "camera_entity": "Камера Home Assistant (необязательно)",
+          "snapshot_url": "Поток go2rtc / URL снапшота / rtsp://…",
+          "go2rtc_base": "Адрес go2rtc",
+          "source_user": "Логин источника",
+          "source_pass": "Пароль источника",
+          "scan_interval": "Интервал опроса, с"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "source": {"name": "Источник кадра"},
+      "zone": {"name": "Движение"}
+    },
+    "sensor": {
+      "last_motion": {"name": "Последнее движение"},
+      "motion_count": {"name": "Движений за сутки"},
+      "frame_change": {"name": "Изменение кадра"}
+    },
+    "switch": {
+      "actions": {"name": "Действия"}
+    }
+  }
+}
