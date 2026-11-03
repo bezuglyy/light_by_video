@@ -18,7 +18,9 @@
       "no_source": "Provide a camera or a stream address",
       "cannot_connect": "No frame received — check address and credentials"
     },
-    "abort": {"already_configured": "This source is already configured"}
+    "abort": {
+      "already_configured": "This source is already configured"
+    }
   },
   "options": {
     "step": {
@@ -36,12 +38,35 @@
     }
   },
   "entity": {
-    "binary_sensor": {"source": {"name": "Frame source"}},
-    "sensor": {
-      "last_motion": {"name": "Last motion"},
-      "motion_count": {"name": "Motions today"},
-      "frame_change": {"name": "Frame change"}
+    "binary_sensor": {
+      "source": {
+        "name": "Frame source"
+      }
     },
-    "switch": {"actions": {"name": "Actions"}}
+    "sensor": {
+      "last_motion": {
+        "name": "Last motion"
+      },
+      "motion_count": {
+        "name": "Motions today"
+      },
+      "frame_change": {
+        "name": "Frame change"
+      },
+      "status": {
+        "name": "Status"
+      },
+      "last_action": {
+        "name": "Last action"
+      },
+      "next_event": {
+        "name": "Next event"
+      }
+    },
+    "switch": {
+      "actions": {
+        "name": "Actions"
+      }
+    }
   }
 }
