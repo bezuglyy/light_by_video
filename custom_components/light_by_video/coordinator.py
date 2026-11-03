@@ -301,7 +301,7 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if zone.get("role") != ROLE_MOTION:
                     zones_out.append({**item, "active": False})
                     continue
-                active = await self._update_zone(zone, item)
+                active = await self._update_zone(zone, item, lighting=False)
                 zones_out.append({**item, "active": active})
         else:
             for zone in self.settings.zones:
@@ -341,11 +341,17 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "last_event": self.event_log[-1] if self.event_log else None,
         }
 
-    async def _update_zone(self, zone: dict[str, Any], item: dict[str, Any]) -> bool:
-        """Временная логика зоны: подтверждение, тишина, продление."""
+    async def _update_zone(self, zone: dict[str, Any], item: dict[str, Any], lighting: bool = False) -> bool:
+        """Временная логика зоны: подтверждение, тишина, продление.
+
+        Кадры «смена света» (рассвет/закат, фары, автоэкспозиция) не считаются ни движением, ни тишиной —
+        иначе серия рвётся и свет дёргается.
+        """
         zone_id = zone["id"]
         cfg = self.settings.detector
         state = self._zstate.setdefault(zone_id, {"streak": 0, "quiet": 0, "active": False})
+        if lighting:
+            return bool(state.get("active"))
         hit = bool(item.get("hit"))
 
         if hit:
