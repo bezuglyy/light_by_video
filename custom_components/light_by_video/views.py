@@ -15,6 +15,7 @@ from .const import (
     CONF_DETECTOR,
     CONF_ENABLED,
     CONF_GO2RTC_BASE,
+    CONF_MUTE_UNTIL,
     CONF_NOTIFY,
     CONF_SCAN_INTERVAL,
     CONF_SNAPSHOT_URL,
@@ -202,6 +203,11 @@ class LightByVideoSettingsView(HomeAssistantView):
                 CONF_SCAN_INTERVAL,
                 CONF_NOTIFY,
                 CONF_SNAPSHOT_URL,
+                CONF_CAMERA_ENTITY,
+                CONF_GO2RTC_BASE,
+                CONF_SOURCE_USER,
+                CONF_SOURCE_PASS,
+                CONF_MUTE_UNTIL,
             )
             if key in body
         }
