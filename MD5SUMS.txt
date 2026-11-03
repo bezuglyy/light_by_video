@@ -22,8 +22,8 @@ ec0d91fa37c12e7ed59b13bdb390cb08  detector/service.py
 60e6582a8ff998aac9d272415e7cf368  docs/FAQ.md
 34ada466733dec5c77a24bea49611b4c  docs/FAQ.pdf
 bc98db558c949a0ade1358f8ae0bac0a  docs/FAQ.xlsx
-5390b65740b70a227d316bfb35443c10  docs/КАЛИБРОВКА-ДАЛЬНИЕ-ОБЪЕКТЫ.md
-c2b3387ea07f836b192ad9a7eb62a8e5  docs/КАЛИБРОВКА-ДАЛЬНИЕ-ОБЪЕКТЫ.pdf
+21fa2c202a0239d9c1d4863cd0b325ef  docs/КАЛИБРОВКА-ДАЛЬНИЕ-ОБЪЕКТЫ.md
+e545a192fef4da3c85627537eee711cb  docs/КАЛИБРОВКА-ДАЛЬНИЕ-ОБЪЕКТЫ.pdf
 e22a319dfbe63f185b3a8748c4ef211c  docs/ОПИСАНИЕ-ПРОЕКТА.md
 3826d305c0697a3593305f471ad2b840  docs/ОПИСАНИЕ-ПРОЕКТА.pdf
 450e733ac959b79c8b7c614cb93afbf9  docs/ПЛАН-ИНТЕГРАЦИИ-svet-po-video.md
@@ -34,4 +34,4 @@ eb7e2e7114e80d276d0850b6b54b972d  LICENSE
 02f756f58d67ba83a6d0f5082b5494ab  tools/publish-github.py
 dd0fed612a22d8394a3879dfc5432ee7  tools/sync-github.py
 3f60ab7a198bd14bf3fffca1e67cab6e  tools/test_motion.py
-72130b9d1c70396356269fb6bbc4b7b5  versions.md
+77af1c32580954c24c66a9a54803797d  versions.md
