@@ -628,6 +628,17 @@ class LightByVideoPanel extends HTMLElement {
     return opts.concat(items);
   }
 
+  async _setMute(hours) {
+    const until = hours > 0 ? new Date(Date.now() + hours * 3600 * 1000).toISOString() : "";
+    await this._api("/settings?refresh=1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mute_until: until }),
+    });
+    await this._tick();
+    this._paintPane();
+  }
+
   _paneAction() {
     const zone = this._zone();
     if (!zone) {
@@ -635,6 +646,23 @@ class LightByVideoPanel extends HTMLElement {
       return;
     }
     const info = (this._state.actions || {})[zone.target_entity] || null;
+
+    const muteRow = h("div", "row");
+    muteRow.append(h("label", "", "Не беспокоить"));
+    for (const hrs of [1, 4, 8]) {
+      const b = h("button", "act", hrs + " ч");
+      b.onclick = () => this._setMute(hrs);
+      muteRow.append(b);
+    }
+    const muteOff = h("button", "act", "Снять");
+    muteOff.onclick = () => this._setMute(0);
+    muteRow.append(muteOff);
+    this._pane.append(muteRow);
+    const muted = this._state.settings.mute_until ? new Date(this._state.settings.mute_until) : null;
+    if (muted && muted > new Date()) {
+      this._pane.append(h("div", "muted", "Действует до " + muted.toLocaleString("ru-RU")));
+    }
+
     this._pane.append(h("div", "muted", "Зона: " + zone.name));
 
     this._pane.append(
@@ -765,6 +793,7 @@ class LightByVideoPanel extends HTMLElement {
       this._row("Порог объектов", this._number(d.objects_conf, (v) => this._saveDetector({ objects_conf: v }), { min: 0.05, max: 0.99, step: 0.05 })),
       this._row("Классы COCO", this._text(d.objects_classes, (v) => this._saveDetector({ objects_classes: v }))),
       this._row("Только вместе с движением", this._checkbox(d.objects_require_motion !== false, (v) => this._saveDetector({ objects_require_motion: v }))),
+      this._row("Инференс только при движении", this._checkbox(d.objects_only_on_motion !== false, (v) => this._saveDetector({ objects_only_on_motion: v }))),
       h("div", "muted", `Детектор: ${(d.mode || "frame") === "objects" ? (obj.ok === false ? "ошибка — " + (obj.error || "") : `ок, объектов ${obj.count ?? 0}, ${Math.round(obj.ms || 0)} мс`) : "разность кадров"}`)
     );
     this._pane.append(
