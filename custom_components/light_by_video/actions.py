@@ -72,6 +72,7 @@ class ActionEngine:
                 continue
             self._active[entity] = {
                 "zone_id": item.get("zone_id"),
+                "zones": item.get("zones") or [item.get("zone_id")],
                 "until": until,
                 "max_until": max_until,
                 "on_since": float(item.get("on_since") or now),
@@ -98,6 +99,9 @@ class ActionEngine:
     def _allowed(self, zone: dict[str, Any]) -> tuple[bool, str]:
         if not self.settings.enabled:
             return False, "интеграция выключена"
+        mute_until = getattr(self.settings, "mute_until", None)
+        if mute_until is not None and dt_util.utcnow() < mute_until:
+            return False, f"режим «не беспокоить» до {dt_util.as_local(mute_until):%d.%m %H:%M}"
         if not zone.get("enabled", True):
             return False, "зона выключена"
         entity = (zone.get("target_entity") or "").strip()
@@ -148,8 +152,15 @@ class ActionEngine:
             return {"ok": False, "reason": "не задано устройство"}
 
         if entity in self._active:
-            self._active[entity]["until"] = now + float(zone.get("hold_sec") or 300)
-            self._active[entity]["zone_id"] = zone_id
+            # общий таймер на устройство: несколько зон продлевают один и тот же свет,
+            # удержание берём максимальное, лимит max_on не отодвигаем
+            item = self._active[entity]
+            hold = max(5, int(zone.get("hold_sec") or 300))
+            item["until"] = max(float(item.get("until") or 0), now + hold)
+            item["zone_id"] = zone_id
+            zones = item.setdefault("zones", [])
+            if zone_id not in zones:
+                zones.append(zone_id)
             self._rearm(entity)
             await self._async_save()
             return {"ok": True, "reason": "продлено", "extended": True}
@@ -179,6 +190,7 @@ class ActionEngine:
 
         self._active[entity] = {
             "zone_id": zone_id,
+            "zones": [zone_id],
             "until": now + hold,
             "max_until": now + max_on,
             "on_since": now,
