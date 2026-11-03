@@ -112,10 +112,10 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_start()
 
     # ------------------------------------------------------------------ кадр
-    async def async_jpeg(self) -> bytes | None:
-        """Кадр для панели: сырые байты HTTP или JPEG из RTSP."""
+    async def async_jpeg(self, width: int | None = None) -> bytes | None:
+        """Кадр для панели/детектора: сырые байты HTTP или JPEG из RTSP (можно уменьшить)."""
         if self.source is not None and hasattr(self.source, "async_jpeg"):
-            return await self.source.async_jpeg()
+            return await self.source.async_jpeg(width=width)
         return self.last_frame_bytes
 
     async def async_mask_png(self) -> bytes | None:
@@ -145,7 +145,7 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return {**cache, "skipped": True}
             return {"ts": now, "objects": [], "count": 0, "ok": True, "error": "", "ms": 0, "skipped": True}
 
-        jpeg = await self.async_jpeg()
+        jpeg = await self.async_jpeg(width=int(cfg.get("objects_width") or 0) or None)
         if not jpeg:
             return {"ts": now, "objects": [], "count": 0, "ok": False, "error": "нет кадра", "ms": 0}
 
@@ -156,6 +156,8 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             params = {
                 "conf": cfg.get("objects_conf", 0.35),
                 "classes": cfg.get("objects_classes", ""),
+                "tiles": int(cfg.get("objects_tiling") or 1),
+                "min_h": cfg.get("objects_min_h") or 0,
             }
             timeout = aiohttp.ClientTimeout(total=float(cfg.get("objects_timeout", 4.0)))
             async with self._session.post(url, data=jpeg, params=params, timeout=timeout) as resp:
@@ -164,6 +166,10 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             info = {
                 "ts": now,
                 "objects": items,
+                "items": [
+                    {"name": o.get("name"), "conf": o.get("conf"), "box": o.get("box")}
+                    for o in items[:20]
+                ],
                 "count": len(items),
                 "ok": True,
                 "error": "",
