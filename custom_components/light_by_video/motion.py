@@ -14,7 +14,7 @@ import io
 from typing import Any
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 
 from .const import DEFAULT_DETECTOR, ROLE_IGNORE, ROLE_MOTION
 
@@ -60,6 +60,28 @@ def zone_box(zone: dict[str, Any], width: int, height: int) -> tuple[int, int, i
     return x0, y0, x1, y1
 
 
+def polygon_mask(points: list[list[float]], width: int, height: int) -> np.ndarray:
+    """Логическая маска многоугольника (вершины — доли кадра)."""
+    from PIL import ImageDraw
+
+    img = Image.new("1", (width, height), 0)
+    xy = [(float(pt[0]) * width, float(pt[1]) * height) for pt in points if len(pt) >= 2]
+    if len(xy) >= 3:
+        ImageDraw.Draw(img).polygon(xy, fill=1)
+    return np.asarray(img, dtype=bool)
+
+
+def zone_mask(zone: dict[str, Any], width: int, height: int) -> np.ndarray:
+    """Маска зоны: многоугольник (если заданы points), иначе прямоугольник."""
+    points = zone.get("points")
+    if points:
+        return polygon_mask(points, width, height)
+    x0, y0, x1, y1 = zone_box(zone, width, height)
+    out = np.zeros((height, width), dtype=bool)
+    out[y0:y1, x0:x1] = True
+    return out
+
+
 def _cleanup(mask: np.ndarray) -> np.ndarray:
     """Убрать одиночные пиксели и залить мелкие дырки."""
     if not mask.size:
@@ -85,8 +107,7 @@ def _ignore_mask(zones: list[dict[str, Any]], width: int, height: int) -> np.nda
         return None
     mask = np.zeros((height, width), dtype=bool)
     for zone in ignore:
-        x0, y0, x1, y1 = zone_box(zone, width, height)
-        mask[y0:y1, x0:x1] = True
+        mask |= zone_mask(zone, width, height)
     return mask
 
 
@@ -147,10 +168,16 @@ def analyze(
         for zone in zones:
             if zone.get("role") == ROLE_IGNORE:
                 continue
-            x0, y0, x1, y1 = zone_box(zone, width, height)
-            patch = mask[y0:y1, x0:x1]
-            px = int(patch.size) or 1
-            changed = int(patch.sum())
+            if zone.get("points"):
+                area = zone_mask(zone, width, height)
+                px = int(area.sum()) or 1
+                patch = mask & area
+                changed = int(patch.sum())
+            else:
+                x0, y0, x1, y1 = zone_box(zone, width, height)
+                patch = mask[y0:y1, x0:x1]
+                px = int(patch.size) or 1
+                changed = int(patch.sum())
             ratio = changed / px
             sensitivity = max(0.2, min(5.0, float(zone.get("sensitivity") or 1.0)))
             need = max(float(cfg.get("min_ratio", 0.006)) / sensitivity, 1.0 / px)
@@ -213,17 +240,18 @@ def mask_png(gray: np.ndarray, background: np.ndarray | None, detector: dict[str
         mask &= ~ignore
 
     canvas = np.stack([mask.astype(np.uint8) * 255] * 3, axis=2)
-    zx0, zy0, zx1, zy1 = 0, 0, 0, 0
+    img = Image.fromarray(canvas.astype(np.uint8), mode="RGB")
+    draw = ImageDraw.Draw(img)
     for zone in zones:
         if zone.get("role") == ROLE_IGNORE:
             continue
+        if zone.get("points"):
+            poly = [(float(pt[0]) * width, float(pt[1]) * height) for pt in zone["points"]]
+            if len(poly) >= 3:
+                draw.line(poly + [poly[0]], fill=(255, 60, 60), width=2)
+            continue
         x0, y0, x1, y1 = zone_box(zone, width, height)
-        canvas[y0:y1, max(0, x0):max(0, x0) + 2] = (255, 60, 60)
-        canvas[y0:y1, max(0, x1 - 2):x1] = (255, 60, 60)
-        canvas[y0:max(0, y0) + 2, x0:x1] = (255, 60, 60)
-        canvas[max(0, y1 - 2):y1, x0:x1] = (255, 60, 60)
-
-    img = Image.fromarray(canvas.astype(np.uint8), mode="RGB")
+        draw.rectangle([x0, y0, max(x0 + 1, x1 - 1), max(y0 + 1, y1 - 1)], outline=(255, 60, 60), width=2)
     out = io.BytesIO()
     img.save(out, format="PNG")
     return out.getvalue()
