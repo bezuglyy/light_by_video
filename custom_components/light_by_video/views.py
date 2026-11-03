@@ -11,6 +11,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    CONF_CALIBRATION,
     CONF_CAMERA_ENTITY,
     CONF_DETECTOR,
     CONF_ENABLED,
@@ -212,11 +213,27 @@ class LightByVideoSettingsView(HomeAssistantView):
                 CONF_SOURCE_PASS,
                 CONF_MUTE_UNTIL,
                 CONF_INTERLOCKS,
+                CONF_CALIBRATION,
                 CONF_SUN_ENTITY,
                 CONF_SUN_OFFSET,
             )
             if key in body
         }
+        if body.get("apply_calibration"):
+            cal = settings.calibration or {}
+            px_per_m = float(cal.get("px_per_m") or 0)
+            person_m = float(cal.get("person_m") or 1.7)
+            frame_w = float(cal.get("frame_w") or 1920)
+            frame_h = float(cal.get("frame_h") or 1080)
+            if px_per_m <= 0:
+                return web.json_response({"error": "калибровка не заполнена"}, status=400)
+            person_px = px_per_m * person_m
+            model_px = person_px * 640.0 / frame_w
+            tiling = 1 if model_px >= 40 else 2
+            min_h = round(max(0.005, min(0.05, (person_px / frame_h) * 0.25)), 3)
+            detector = dict(settings.detector)
+            detector.update({"objects_tiling": tiling, "objects_min_h": min_h, "objects_conf": 0.25})
+            patch[CONF_DETECTOR] = detector
         if not patch:
             return web.json_response({"error": "нечего менять"}, status=400)
 
