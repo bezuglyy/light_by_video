@@ -28,6 +28,7 @@ from .const import (
     EVENT_DETECTED,
     EVENT_LIGHTING,
     EVENT_SCHEDULE,
+    EVENT_STUCK,
     EVENT_SKIPPED,
     EVENT_TITLES,
     MAX_EVENT_LOG,
@@ -73,6 +74,7 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._session: aiohttp.ClientSession | None = None
         self._unsub_bus = hass.bus.async_listen(EVENT_BUS, self._on_action_event)
         self.schedule_runner = None
+        self.stuck_watcher = None
         self._objects: dict[str, Any] = {}
         self.event_log: deque[dict[str, Any]] = deque(maxlen=MAX_EVENT_LOG)
         self.started_at = time.time()
@@ -104,7 +106,7 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data = dict(event.data or {})
         if data.get("entry_id") != self.entry.entry_id:
             return
-        if data.get("event") not in (EVENT_ACTION_ON, EVENT_ACTION_OFF, EVENT_SKIPPED, EVENT_SCHEDULE):
+        if data.get("event") not in (EVENT_ACTION_ON, EVENT_ACTION_OFF, EVENT_SKIPPED, EVENT_SCHEDULE, EVENT_STUCK):
             return
         data.setdefault("ts", dt_util.utcnow().isoformat())
         self.event_log.append(data)
@@ -365,6 +367,8 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "next_event": self._next_event(),
             "next_schedule": (self.schedule_runner.next_start() if getattr(self, "schedule_runner", None) else None),
             "window": (self.schedule_runner.window_state() if getattr(self, "schedule_runner", None) else None),
+            "stuck": (self.stuck_watcher.status() if getattr(self, "stuck_watcher", None) else []),
+            "stuck_config": (self.settings.stuck or {}),
             "objects": objects_info,
             "detector_mode": str(self.settings.detector.get("mode") or "frame"),
             "last_motion": self.last_motion_ts,
