@@ -23,6 +23,14 @@ const fmt = (ts) => {
   }
 };
 
+const fmtDur = (sec) => {
+  const v = Math.max(0, Math.round(Number(sec) || 0));
+  if (v < 60) return v + " с";
+  const m = Math.floor(v / 60);
+  const r = v % 60;
+  return r ? `${m} мин ${r} с` : `${m} мин`;
+};
+
 const fmtClock = (iso) => {
   if (!iso) return "—";
   try {
@@ -643,6 +651,7 @@ class LightByVideoPanel extends HTMLElement {
     if (this._tab === "zones") this._paneZones();
     else if (this._tab === "action") {
       this._paneAction();
+      this._paneStuck();
       this._paneSchedules();
     } else if (this._tab === "detector") this._paneDetector();
     else if (this._tab === "interlocks") this._paneInterlocks();
@@ -670,10 +679,9 @@ class LightByVideoPanel extends HTMLElement {
       "Максимум, мин": "Жёсткий лимит непрерывного горения, даже при постоянном движении",
       "Не гасить, если горело": "Если устройство горело до срабатывания — не выключать его по таймеру",
       "Пауза между вкл., мин": "Не включать повторно N минут после выключения (защита от мигания)",
-      "Время суток": "Ограничение по солнцу: закат/восход (сенсор задаётся ниже)",
-      "Время с": "Начало окна работы; пусто — круглосуточно",
-      "Время по": "Конец окна работы; пусто — круглосуточно",
-      "Дни": "Дни недели, в которые разрешены действия",
+      "Освещённость": "Условие по свету: любая / только в темноте / только днём / по датчику освещённости",
+      "Датчик освещённости": "Сущность с освещённостью в люксах (только для режима «по датчику»)",
+      "Порог, lx": "Включать, пока освещённость ниже этого значения",
       "Сенсор «темно»": "sun.sun или свой датчик: состояние «on» = темно",
       "Поправка к закату, мин": "Минус — раньше (за 20 мин до заката), плюс — позже",
       "Не беспокоить": "Временно запретить действия (камера и журнал продолжают работать)",
@@ -681,8 +689,8 @@ class LightByVideoPanel extends HTMLElement {
       "Сервис объектов": "HTTP-адрес ONNX-детектора (ARM:8099)",
       "Порог объектов": "Минимальная уверенность модели: ниже — больше находок и ложных",
       "Классы COCO": "0 человек · 1 велосипед · 2 машина · 3 мотоцикл · 5 автобус · 7 грузовик",
-      "Только вместе с движением": "Объект засчитывается, только если в зоне есть изменение кадра",
-      "Инференс только при движении": "Не тратить CPU на статичную сцену",
+      "Объект только при движении кадра": "Объект засчитывается, только если в зоне есть изменение кадра (припаркованная машина не держит свет)",
+      "Не звать модель без движения": "Не отправлять кадр в детектор, если сцена статична (экономия CPU)",
       "Дальние объекты": "Дробление кадра: выкл · если не нашли · всегда (медленно)",
       "Ширина кадра для детектора": "Для main-потока 1920 ставьте 960",
       "Мин. высота объекта, %": "Отсекать мелкие боксы; человек на дистанции пикапа ≈ 8 % кадра",
@@ -701,6 +709,9 @@ class LightByVideoPanel extends HTMLElement {
       "RTSP / URL / go2rtc": "Если камера не выбрана: rtsp://, http:// или имя потока go2rtc",
       "Интервал проверки, с": "Как часто опрашивать кадр (1–30 с)",
       "Название периода": "Видно в списке, журнале и датчиках",
+      "Проверка включена": "Следить за устройствами, которые горят без таймера интеграции",
+      "Ждать, мин": "Сколько минут устройство должно гореть без движения, прежде чем реагировать",
+      "Что делать": "«только сообщать» — событие в журнале; «выключать» — ещё и команда выключения",
       "Триггер периода": "По часам (19:00 → 07:00), с заката до рассвета или с рассвета до заката",
       "Начало периода": "С этого времени действия разрешены",
       "Конец периода": "После этого времени действия не выполняются; если раньше начала — переход через полночь",
@@ -846,12 +857,22 @@ class LightByVideoPanel extends HTMLElement {
           this._number(zone.sensitivity, (v) => this._saveZone(zone.id, { sensitivity: v }), { min: 0.2, max: 5, step: 0.1 })
         ),
         this._row("Сущность", this._checkbox(zone.entity, (v) => this._saveZone(zone.id, { entity: v }))),
-        this._row("Форма", this._shapeButtons(zone)),
-        this._row("X, %", this._number((zone.x * 100).toFixed(1), (v) => this._saveZone(zone.id, { x: Number(v) / 100 }), { min: 0, max: 100, step: 0.5 })),
-        this._row("Y, %", this._number((zone.y * 100).toFixed(1), (v) => this._saveZone(zone.id, { y: Number(v) / 100 }), { min: 0, max: 100, step: 0.5 })),
-        this._row("Ширина, %", this._number((zone.w * 100).toFixed(1), (v) => this._saveZone(zone.id, { w: Number(v) / 100 }), { min: 1, max: 100, step: 0.5 })),
-        this._row("Высота, %", this._number((zone.h * 100).toFixed(1), (v) => this._saveZone(zone.id, { h: Number(v) / 100 }), { min: 1, max: 100, step: 0.5 }))
+        this._row("Форма", this._shapeButtons(zone), (zone.points || []).length >= 3
+          ? "Многоугольник: вершины тянутся на кадре, размер задаётся ими"
+          : "Прямоугольник: положение и размер ниже")
       );
+
+      const isPolygon = (zone.points || []).length >= 3;
+      if (!isPolygon) {
+        this._pane.append(
+          this._row("X, %", this._number((zone.x * 100).toFixed(1), (v) => this._saveZone(zone.id, { x: Number(v) / 100 }), { min: 0, max: 100, step: 0.5 })),
+          this._row("Y, %", this._number((zone.y * 100).toFixed(1), (v) => this._saveZone(zone.id, { y: Number(v) / 100 }), { min: 0, max: 100, step: 0.5 })),
+          this._row("Ширина, %", this._number((zone.w * 100).toFixed(1), (v) => this._saveZone(zone.id, { w: Number(v) / 100 }), { min: 1, max: 100, step: 0.5 })),
+          this._row("Высота, %", this._number((zone.h * 100).toFixed(1), (v) => this._saveZone(zone.id, { h: Number(v) / 100 }), { min: 1, max: 100, step: 0.5 }))
+        );
+      } else {
+        this._pane.append(h("div", "muted", `контур: ${(zone.points || []).length} вершин · рамка ${Math.round(zone.w * 100)}×${Math.round(zone.h * 100)} %`));
+      }
     }
   }
 
@@ -988,17 +1009,18 @@ class LightByVideoPanel extends HTMLElement {
     const sunState = this._hass.states[sunEntity];
     const sunAttrs = sunState?.attributes || {};
     const isNight = sunEntity === "sun.sun" ? sunState?.state === "below_horizon" : String(sunState?.state || "").toLowerCase() === "on";
-    const winFrom = zone.time_from || "00:00";
-    const winTo = zone.time_to || "24:00";
-    const dayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-    const daysText = (zone.days || []).length === 7 ? "каждый день" : (zone.days || []).map((d) => dayNames[d]).join(", ") || "—";
+    const win = this._state.window || null;
+    const winActive = !!(win && win.active);
+    const lightText = { any: "любая", dark: "только в темноте", light: "только днём", lux: `по датчику (${zone.lux_below || 0} lx)` }[zone.light_mode || "any"] || "любая";
     const sch = h("div");
     sch.style.cssText = "border:1px solid var(--divider-color,#354354);border-radius:8px;padding:6px 8px;margin-bottom:8px";
     sch.append(
-      h("div", "muted", "Расписание"),
+      h("div", "muted", "Условия и период"),
       h("div", "", `сейчас: ${isNight ? "ночь" : "день"} · закат ${fmtClock(sunAttrs.next_setting)} · восход ${fmtClock(sunAttrs.next_rising)}`),
-      h("div", "muted", `окно ${winFrom}–${winTo} · ${daysText} · условие: ${zone.sun === "night" ? "только после заката" : zone.sun === "day" ? "только до заката" : "всегда"}`),
-      h("div", "muted", `поправка к закату: ${this._state.settings.sun_offset_min || 0} мин · сенсор: ${sunEntity}`)
+      h("div", "muted", `освещённость: ${lightText} · поправка к закату: ${this._state.settings.sun_offset_min || 0} мин`),
+      h("div", "muted", winActive
+        ? `период активен${win.until ? " до " + fmtClock(win.until) : ""}${win.schedule ? " (" + win.schedule + ")" : ""}`
+        : ((win && (win.items || []).length) ? "вне периода работы — действия не выполняются" : "периоды не заданы — действия круглосуточно"))
     );
     this._pane.append(sch);
 
@@ -1065,36 +1087,25 @@ class LightByVideoPanel extends HTMLElement {
         this._number(((zone.cooldown_sec || 0) / 60).toFixed(1), (v) => this._saveZone(zone.id, { cooldown_sec: Math.round(Number(v) * 60) }), { min: 0, max: 1440, step: 0.5 })
       ),
       this._row(
-        "Время суток",
+        "Освещённость",
         this._selectEl(
-          [["any", "всегда"], ["night", "только после заката"], ["day", "только до заката"]],
-          zone.sun || "any",
-          (v) => this._saveZone(zone.id, { sun: v })
-        )
-      ),
-      this._row("Время с", this._text(zone.time_from, (v) => this._saveZone(zone.id, { time_from: v }))),
-      this._row("Время по", this._text(zone.time_to, (v) => this._saveZone(zone.id, { time_to: v })))
+          [["any", "любая"], ["dark", "только в темноте"], ["light", "только днём"], ["lux", "по датчику освещённости"]],
+          zone.light_mode || "any",
+          (v) => this._saveZone(zone.id, { light_mode: v })
+        ),
+        "Условие по свету. Время и дни недели задаются в периодах ниже."
+      )
     );
 
-    const daysRow = h("div", "row");
-    daysRow.append(h("label", "", "Дни"));
-    const days = h("div", "days");
-    for (let i = 0; i < 7; i++) {
-      const lbl = h("label");
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = (zone.days || []).includes(i);
-      cb.onchange = () => {
-        const set = new Set(zone.days || []);
-        if (cb.checked) set.add(i);
-        else set.delete(i);
-        this._saveZone(zone.id, { days: Array.from(set).sort() });
-      };
-      lbl.append(cb, document.createTextNode(DAYS[i]));
-      days.append(lbl);
+    if ((zone.light_mode || "any") === "lux") {
+      this._pane.append(
+        this._row("Датчик освещённости", this._text(zone.lux_sensor || "", (v) => this._saveZone(zone.id, { lux_sensor: v }))),
+        this._row(
+          "Порог, lx",
+          this._number(zone.lux_below || 0, (v) => this._saveZone(zone.id, { lux_below: Number(v) }), { min: 0, max: 100000, step: 1 })
+        )
+      );
     }
-    daysRow.append(days);
-    this._pane.append(daysRow);
 
     if (info) {
       this._pane.append(
@@ -1260,6 +1271,83 @@ class LightByVideoPanel extends HTMLElement {
       : (sched.days || []).map((d) => dayNames[d]).join(", ");
     const state = item ? (item.active ? " · сейчас активен" : " · вне периода") : "";
     return `${trig}: ${win} · ${hold} · ${days}${state}`;
+  }
+
+  async _saveStuck(patch) {
+    const current = Object.assign({ enabled: true, grace_min: 10, mode: "notify" }, this._state.settings.stuck || {}, patch);
+    await this._api("/settings?refresh=1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stuck: current }),
+    });
+    await this._tick();
+    this._paintPane();
+  }
+
+  _paneStuck() {
+    const cfg = Object.assign({ enabled: true, grace_min: 10, mode: "notify" }, this._state.settings.stuck || {});
+    const list = this._state.stuck || [];
+    const head = h("div", "", "Проверка: устройство горит, а движения нет");
+    head.style.cssText = "margin:16px 0 4px;padding-top:10px;border-top:1px solid var(--divider-color,#354354);font-weight:600;font-size:13px";
+    this._pane.append(head);
+    this._pane.append(
+      h("div", "muted", "Интеграция держит свет только своим таймером. Если устройство включено, таймера на нём нет и движения давно не было — это «горит без движения» (ручное включение, залипание, потерянная команда).")
+    );
+
+    const en = document.createElement("input");
+    en.type = "checkbox";
+    en.checked = cfg.enabled !== false;
+    en.onchange = () => this._saveStuck({ enabled: en.checked });
+    const grace = this._number(cfg.grace_min, (v) => this._saveStuck({ grace_min: Number(v) }), { min: 1, max: 1440, step: 1 });
+    const modeSel = this._selectEl(
+      [["notify", "только сообщать"], ["off", "выключать устройство"]],
+      cfg.mode || "notify",
+      (v) => this._saveStuck({ mode: v })
+    );
+
+    this._pane.append(
+      this._row("Проверка включена", en, "Следить за устройствами без нашего таймера"),
+      this._row("Ждать, мин", grace, "Сколько минут устройство должно гореть без движения, прежде чем реагировать"),
+      this._row("Что делать", modeSel, "«только сообщать» — событие в журнале и уведомление; «выключать» — ещё и команда выключения")
+    );
+
+    const check = h("button", "act", "Проверить сейчас");
+    check.onclick = async () => {
+      try {
+        await this._hass.callService("light_by_video", "check_stuck", {});
+        await this._tick();
+        this._paintPane();
+        this._status("проверка выполнена");
+      } catch (err) {
+        this._status("проверка не выполнена: " + err.message, true);
+      }
+    };
+    this._pane.append(check);
+
+    if (list.length) {
+      for (const item of list) {
+        const card = h("div", "zitem");
+        card.style.flexDirection = "column";
+        card.style.alignItems = "stretch";
+        card.append(h("div", "", `${item.zone || item.entity}: включено без движения ${fmtDur(item.seconds)}`));
+        card.append(h("div", "muted", `${item.entity}${item.motion_age === null ? " · движения не было" : " · последнее движение " + fmtDur(item.motion_age) + " назад"}`));
+        const off = h("button", "act", "Выключить");
+        off.style.marginTop = "4px";
+        off.onclick = async () => {
+          try {
+            await this._hass.callService("homeassistant", "turn_off", { entity_id: item.entity });
+            await this._tick();
+            this._paintPane();
+          } catch (err) {
+            this._status("не выключено: " + err.message, true);
+          }
+        };
+        card.append(off);
+        this._pane.append(card);
+      }
+    } else {
+      this._pane.append(h("div", "muted", "Сейчас таких устройств нет."));
+    }
   }
 
   _paneSchedules() {
@@ -1522,8 +1610,8 @@ class LightByVideoPanel extends HTMLElement {
       this._row("Сервис объектов", this._text(d.objects_url, (v) => this._saveDetector({ objects_url: v }))),
       this._row("Порог объектов", this._number(d.objects_conf, (v) => this._saveDetector({ objects_conf: v }), { min: 0.05, max: 0.99, step: 0.05 })),
       this._row("Классы COCO", this._text(d.objects_classes, (v) => this._saveDetector({ objects_classes: v }))),
-      this._row("Только вместе с движением", this._checkbox(d.objects_require_motion !== false, (v) => this._saveDetector({ objects_require_motion: v }))),
-      this._row("Инференс только при движении", this._checkbox(d.objects_only_on_motion !== false, (v) => this._saveDetector({ objects_only_on_motion: v }))),
+      this._row("Объект только при движении кадра", this._checkbox(d.objects_require_motion !== false, (v) => this._saveDetector({ objects_require_motion: v }))),
+      this._row("Не звать модель без движения", this._checkbox(d.objects_only_on_motion !== false, (v) => this._saveDetector({ objects_only_on_motion: v }))),
       this._row(
         "Дальние объекты",
         this._selectEl(
@@ -1590,15 +1678,15 @@ class LightByVideoPanel extends HTMLElement {
         "Максимум — жёсткий лимит непрерывного горения (даже при постоянном движении).",
         "Пауза между включениями — защита от частого мигания (после выключения N минут не включать).",
         "Продлевать — новое движение во время удержания сбрасывает таймер.",
-        "Время суток — ограничение по сенсору «темно» (закат/восход) с поправкой в минутах.",
+        "Освещённость — условие по свету: любая, только в темноте, только днём или по датчику освещённости (порог в люксах). Время и дни — это периоды работы ниже, отдельно их задавать не нужно.",
         "После каждой команды интеграция через 5 секунд проверяет фактическое состояние устройства, при расхождении повторяет (до 3 раз).",
         ["«Не беспокоить» и кнопка «Выключить сейчас» — ручное управление; пауза снимается кнопкой «Сбросить паузу»."],
       ]),
       section("Детектор", [
         "Режим «разность кадров» — без зависимостей: фон подстраивается, сравниваются пиксели, смена освещения отсекается по доле изменённого кадра.",
         "Режим «объекты» — кадр отправляется в ONNX-детектор (ARM:8099); в зоне засчитываются только человек/машина и т.п.",
-        "«Только вместе с движением» — объект подтверждается лишь при изменении кадра (припаркованная машина не держит свет).",
-        "«Инференс только при движении» — модель не вызывается на статичной сцене (экономия CPU).",
+        "«Объект только при движении кадра» — объект подтверждается лишь при изменении кадра (припаркованная машина не держит свет).",
+        "«Не звать модель без движения» — кадр не отправляется в детектор на статичной сцене (экономия CPU).",
         "«Дальние объекты» — дробление кадра на фрагменты: лучше видно мелкие/дальние фигуры, но медленнее.",
         "Калибровка масштаба: эталонный объект и номер (0,52 м) дают px/м; кнопка «Применить по калибровке» выставляет tiling/min_h/conf.",
         ["Формулы: ", code("px_per_m = ширина_px / ширина_м"), " · ", code("person_px = 1.70 × px_per_m"), " · ", code("в модели = person_px × 640 / ширина_кадра × tiles")],
