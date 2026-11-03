@@ -15,6 +15,7 @@ from .const import DOMAIN
 from .coordinator import LightByVideoCoordinator
 from .panel import async_register_panel, async_unregister_panel
 from .schedules import ScheduleRunner
+from .stuck import StuckWatcher
 from .settings import get_settings
 from .views import (
     LightByVideoEventsView,
@@ -50,9 +51,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     store = hass.data.setdefault(DOMAIN, {})
     store[entry.entry_id] = coordinator
     store[f"actions:{entry.entry_id}"] = actions
+    if getattr(settings, "migrated_periods", 0):
+        _LOGGER.info(
+            "light_by_video: ограничения зон перенесены в периоды работы (%s шт.)", settings.migrated_periods
+        )
+        await settings.async_save({"schedules": settings.schedules})
+        settings.migrated_periods = 0
+
     runner = ScheduleRunner(hass, entry, settings, actions, coordinator)
     coordinator.schedule_runner = runner
     actions.schedule_runner = runner
+    watcher = StuckWatcher(hass, entry, settings, actions, coordinator)
+    coordinator.stuck_watcher = watcher
+    store[f"stuck:{entry.entry_id}"] = watcher
     store[f"runner:{entry.entry_id}"] = runner
 
     await _async_register_http(hass)
@@ -60,6 +71,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await async_register_panel(hass)
 
     runner.start()
+    watcher.start()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     _LOGGER.info("light_by_video: интеграция запущена (%s)", entry.title)
@@ -122,6 +134,15 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             await coordinator.actions.async_stop_all("сервис stop")
         await coordinator.async_request_refresh()
 
+    async def _check_stuck(call) -> None:
+        coordinator = _pick_coordinator(hass, call.data.get("entry_id"))
+        if coordinator is None:
+            return
+        watcher = getattr(coordinator, "stuck_watcher", None)
+        if watcher is not None:
+            await watcher.async_check(force=True)
+        await coordinator.async_request_refresh()
+
     async def _reset(call) -> None:
         coordinator = _pick_coordinator(hass, call.data.get("entry_id"))
         if coordinator is None:
@@ -137,6 +158,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "trigger", _trigger, schema=schema_trigger)
     hass.services.async_register(DOMAIN, "stop", _stop, schema=schema_stop)
     hass.services.async_register(DOMAIN, "reset_cooldown", _reset, schema=schema_reset)
+    hass.services.async_register(DOMAIN, "check_stuck", _check_stuck, schema=vol.Schema({vol.Optional("entry_id"): cv.string}))
 
 
 async def _async_register_http(hass: HomeAssistant) -> None:
