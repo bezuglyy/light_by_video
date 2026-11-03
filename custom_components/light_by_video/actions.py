@@ -236,6 +236,11 @@ class ActionEngine:
         )
         return {"ok": True, "reason": "включено", "hold": hold, "was_on": was_on}
 
+    async def async_stop(self, entity: str, reason: str = "выключено вручную") -> None:
+        if entity in self._active:
+            await self._async_turn_off(entity, reason)
+            await self._async_save()
+
     async def async_stop_all(self, reason: str = "выключено вручную") -> None:
         for entity in list(self._active):
             await self._async_turn_off(entity, reason)
