@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import datetime, timedelta
@@ -217,6 +218,7 @@ class ActionEngine:
         ok = await self._async_set(entity, True, zone=zone)
         if not ok:
             return {"ok": False, "reason": "команда не выполнена"}
+        self.hass.async_create_task(self._async_verify(entity, True))
 
         self._active[entity] = {
             "zone_id": zone_id,
@@ -238,6 +240,36 @@ class ActionEngine:
         for entity in list(self._active):
             await self._async_turn_off(entity, reason)
         await self._async_save()
+
+    def zone_status(self, zone: dict[str, Any]) -> dict[str, Any]:
+        """Подробный статус действия зоны: таймеры, пауза, устройство."""
+        entity = (zone.get("target_entity") or "").strip()
+        now = time.time()
+        item = self._active.get(entity) if entity else None
+        state = self.hass.states.get(entity) if entity else None
+        cool = self._cooldown_until.get(str(zone.get("id"))) or 0.0
+        changed = ""
+        if state is not None and state.last_changed is not None:
+            try:
+                changed = state.last_changed.isoformat()
+            except Exception:  # noqa: BLE001
+                changed = ""
+        last = self._last_cmd.get(entity) if entity else None
+        return {
+            "entity": entity,
+            "entity_state": state.state if state is not None else "нет",
+            "entity_changed": changed,
+            "active": bool(item),
+            "left_sec": max(0, int((item or {}).get("until", 0) - now)) if item else 0,
+            "max_left_sec": max(0, int((item or {}).get("max_until", 0) - now)) if item else 0,
+            "cooldown_left": max(0, int(cool - now)),
+            "last_command_sec": int(now - last) if last else None,
+            "was_on": bool((item or {}).get("was_on")),
+        }
+
+    def reset_cooldown(self, zone_id: str) -> None:
+        """Снять паузу между включениями для зоны."""
+        self._cooldown_until.pop(str(zone_id), None)
 
     def active_info(self) -> dict[str, dict[str, Any]]:
         now = time.time()
@@ -320,6 +352,7 @@ class ActionEngine:
 
         if await self._async_set(entity, False, reason=reason):
             await self._async_event(EVENT_ACTION_OFF, {"entity": entity, "reason": reason})
+            self.hass.async_create_task(self._async_verify(entity, False))
             zone = next((z for z in self.settings.zones if z.get("id") == item.get("zone_id")), None)
             cooldown = int((zone or {}).get("cooldown_sec") or 0)
             if cooldown > 0:
@@ -333,6 +366,23 @@ class ActionEngine:
         return False
 
     # ------------------------------------------------------------------ HA
+    async def _async_verify(self, entity: str, expect_on: bool, attempts: int = 3, delay: float = 5.0) -> bool:
+        """Проверить, что устройство реально перешло в нужное состояние (с повторами)."""
+        for attempt in range(attempts):
+            await asyncio.sleep(delay)
+            state = self.hass.states.get(entity)
+            if state is None:
+                continue
+            if (state.state in _ON_STATES) == expect_on:
+                return True
+            if attempt < attempts - 1:
+                await self._async_set(entity, expect_on, reason="повтор по проверке")
+        await self._async_event(
+            EVENT_SKIPPED,
+            {"entity": entity, "reason": "устройство не подтвердило переключение", "expected": "on" if expect_on else "off"},
+        )
+        return False
+
     async def _async_set(self, entity: str, turn_on: bool, *, zone: dict[str, Any] | None = None, reason: str = "") -> bool:
         domain = entity.split(".", 1)[0]
         service = "turn_on" if turn_on else "turn_off"
