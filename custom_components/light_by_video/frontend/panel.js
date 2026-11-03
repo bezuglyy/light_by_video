@@ -257,7 +257,7 @@ class LightByVideoPanel extends HTMLElement {
   }
 
   _paintTabs() {
-    const tabs = [["zones", "Зоны"], ["action", "Действия"], ["detector", "Детектор"], ["interlocks", "Запреты"], ["source", "Источник"], ["journal", "Журнал"]];
+    const tabs = [["zones", "Зоны"], ["action", "Действия"], ["detector", "Детектор"], ["interlocks", "Запреты"], ["schedules", "Расписания"], ["source", "Источник"], ["journal", "Журнал"]];
     this._tabsEl.innerHTML = "";
     for (const [id, title] of tabs) {
       const b = h("button", this._tab === id ? "on" : "", title);
@@ -628,6 +628,7 @@ class LightByVideoPanel extends HTMLElement {
     else if (this._tab === "action") this._paneAction();
     else if (this._tab === "detector") this._paneDetector();
     else if (this._tab === "interlocks") this._paneInterlocks();
+    else if (this._tab === "schedules") this._paneSchedules();
     else if (this._tab === "source") this._paneSource();
     else this._paneJournal();
   }
@@ -1127,6 +1128,138 @@ class LightByVideoPanel extends HTMLElement {
     this._pane.append(add);
     this._pane.append(
       h("div", "muted", "Примеры: «Ворота открыты» (switch/вход is_on → запрещать), «Свет уже горит» (устройство is_on), «На улице светло» (датчик освещённости above 100).")
+    );
+  }
+
+  async _saveSchedules(list) {
+    await this._api("/settings?refresh=1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ schedules: list }),
+    });
+    await this._tick();
+    this._paintPane();
+  }
+
+  _paneSchedules() {
+    const list = (this._state.settings.schedules || []).slice();
+    const zones = this._state.settings.zones || [];
+    const zoneOptions = zones.map((z) => [z.id, z.name]);
+    const dayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+    const nxt = (this._state.next_schedule) || null;
+
+    this._pane.append(
+      h("div", "muted", "Принудительное включение или выключение по времени. Пропущенное срабатывание догоняется после простоя HA (окно «догон», мин).")
+    );
+    if (nxt) this._pane.append(h("div", "muted", `Ближайшее: ${nxt.name || "—"} в ${fmtClock(nxt.at)} (${nxt.action === "off" ? "выключить" : "включить"})`));
+
+    if (!list.length) this._pane.append(h("div", "muted", "Расписаний пока нет"));
+
+    list.forEach((sched, idx) => {
+      const card = h("div", "zitem");
+      card.style.flexDirection = "column";
+      card.style.alignItems = "stretch";
+      const head = h("div", "row");
+      head.style.margin = "0";
+      const en = document.createElement("input");
+      en.type = "checkbox";
+      en.checked = sched.enabled !== false;
+      en.onchange = () => {
+        const next = list.slice();
+        next[idx] = { ...sched, enabled: en.checked };
+        this._saveSchedules(next);
+      };
+      const name = this._text(sched.name, (v) => {
+        const next = list.slice();
+        next[idx] = { ...sched, name: v };
+        this._saveSchedules(next);
+      });
+      name.style.flex = "1 1 auto";
+      const del = h("button", "act", "✕");
+      del.onclick = () => this._saveSchedules(list.filter((x) => x.id !== sched.id));
+      head.append(en, name, del);
+      card.append(head);
+      card.append(
+        h("div", "muted", `${sched.time} · ${sched.action === "off" ? "выключить" : `включить на ${Math.round((sched.seconds || 600) / 60)} мин`} · ${(sched.days || []).length === 7 ? "каждый день" : (sched.days || []).map((d) => dayNames[d]).join(", ")}${sched.last_run ? " · последний запуск " + fmtClock(sched.last_run) : ""}`)
+      );
+      const row = h("div", "row");
+      row.style.margin = "4px 0 0";
+      const run = h("button", "act", "Запустить");
+      run.onclick = async () => {
+        try {
+          await this._hass.callService("light_by_video", "run_schedule", { schedule_id: sched.id });
+          await this._tick();
+          this._paintPane();
+        } catch (err) {
+          this._status("расписание не запущено: " + err.message, true);
+        }
+      };
+      row.append(run);
+      card.append(row);
+      this._pane.append(card);
+    });
+
+    // добавление
+    let time = "22:00";
+    let action = "on";
+    let seconds = 600;
+    let daysSel = [0, 1, 2, 3, 4, 5, 6];
+    let zoneSel = zones[0]?.id || "z1";
+    let newName = "Новое расписание";
+
+    const timeInput = document.createElement("input");
+    timeInput.type = "time";
+    timeInput.value = "22:00";
+    timeInput.onchange = () => { time = timeInput.value; };
+    const actionSel = this._selectEl([["on", "включить"], ["off", "выключить"]], "on", (v) => { action = v; });
+    const secsInput = this._number(600, (v) => { seconds = Number(v); }, { min: 60, max: 86400, step: 60 });
+    const zoneSelEl = this._selectEl(zoneOptions, zoneSel, (v) => { zoneSel = v; });
+    const nameInput = this._text("Новое расписание", (v) => { newName = v; });
+
+    const daysRow = h("div", "row");
+    daysRow.append(h("label", "", "Дни"));
+    const daysWrap = h("div", "days");
+    for (let i = 0; i < 7; i++) {
+      const lbl = h("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = true;
+      cb.onchange = () => {
+        if (cb.checked) daysSel = Array.from(new Set([...daysSel, i])).sort();
+        else daysSel = daysSel.filter((d) => d !== i);
+      };
+      lbl.append(cb, document.createTextNode(dayNames[i]));
+      daysWrap.append(lbl);
+    }
+    daysRow.append(daysWrap);
+
+    this._pane.append(
+      h("div", "muted", "Новое расписание"),
+      this._row("Название", nameInput),
+      this._row("Время", timeInput),
+      this._row("Действие", actionSel),
+      this._row("Держать, с", secsInput),
+      this._row("Зона", zoneSelEl),
+      daysRow
+    );
+    const add = h("button", "act primary", "＋ Добавить расписание");
+    add.onclick = () => {
+      const item = {
+        id: "s" + Date.now(),
+        name: newName,
+        enabled: true,
+        time,
+        days: daysSel.length ? daysSel : [0, 1, 2, 3, 4, 5, 6],
+        action,
+        zone_id: zoneSel,
+        seconds,
+        last_run: "",
+      };
+      this._saveSchedules(list.concat([item]));
+    };
+    this._pane.append(add);
+    this._pane.append(
+      h("div", "muted", "Догон пропущенного, мин: " + (this._state.settings.catchup_min ?? 360) + " (меняется в настройках записи)")
     );
   }
 
