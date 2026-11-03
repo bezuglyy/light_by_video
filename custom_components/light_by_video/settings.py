@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    CONF_CALIBRATION,
     CONF_CAMERA_ENTITY,
     CONF_DETECTOR,
     CONF_ENABLED,
@@ -25,6 +26,7 @@ from .const import (
     CONF_SOURCE_USER,
     CONF_ZONES,
     DAYS_ALL,
+    DEFAULT_CALIBRATION,
     DEFAULT_DETECTOR,
     DEFAULT_GO2RTC_BASE,
     DEFAULT_SCAN_INTERVAL,
@@ -109,6 +111,32 @@ def normalize_zone(zone: dict[str, Any], index: int) -> dict[str, Any]:
         "days": days or list(DAYS_ALL),
         "entity": bool(zone.get("entity", True)),
     }
+
+
+def normalize_calibration(value: Any) -> dict[str, Any]:
+    """Данные калибровки масштаба: эталоны, масштаб, рост человека."""
+    out = dict(DEFAULT_CALIBRATION)
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in ("object_name", "measured_at", "note"):
+                out[key] = str(item or "")[:120]
+            elif key in out:
+                try:
+                    out[key] = float(item)
+                except (TypeError, ValueError):
+                    continue
+    # масштаб: среднее по эталонам, если заданы
+    measures = []
+    if out["object_m"] > 0 and out["object_px"] > 0:
+        measures.append(out["object_px"] / out["object_m"])
+    if out["plate_m"] > 0 and out["plate_px"] > 0:
+        measures.append(out["plate_px"] / out["plate_m"])
+    if measures:
+        out["px_per_m"] = round(sum(measures) / len(measures), 1)
+    out["frame_w"] = max(1, int(out["frame_w"] or 1920))
+    out["frame_h"] = max(1, int(out["frame_h"] or 1080))
+    out["person_m"] = out["person_m"] or 1.70
+    return out
 
 
 def normalize_interlock(rule: dict[str, Any], index: int) -> dict[str, Any]:
@@ -276,6 +304,7 @@ class Settings:
         self.interlocks = [
             normalize_interlock(r, i + 1) for i, r in enumerate(rules or []) if isinstance(r, dict)
         ][:MAX_INTERLOCKS]
+        self.calibration = normalize_calibration(merged.get(CONF_CALIBRATION))
         self.mute_until_raw = str(merged.get(CONF_MUTE_UNTIL) or "")
         self.mute_until = _parse_dt(self.mute_until_raw)
         self.detector = normalize_detector(merged.get(CONF_DETECTOR))
@@ -319,6 +348,8 @@ class Settings:
                 options[key] = bool(value)
             elif key == CONF_MUTE_UNTIL:
                 options[key] = str(value or "")
+            elif key == CONF_CALIBRATION and isinstance(value, dict):
+                options[CONF_CALIBRATION] = normalize_calibration({**self.calibration, **value})
             elif key == CONF_INTERLOCKS and isinstance(value, list):
                 options[CONF_INTERLOCKS] = [
                     normalize_interlock(r, i + 1) for i, r in enumerate(value) if isinstance(r, dict)
@@ -345,6 +376,7 @@ class Settings:
             "scan_interval": self.scan_interval,
             "enabled": self.enabled,
             "mute_until": self.mute_until_raw,
+            "calibration": self.calibration,
             "sun_entity": self.sun_entity,
             "sun_offset_min": self.sun_offset_min,
             "interlocks": self.interlocks,
