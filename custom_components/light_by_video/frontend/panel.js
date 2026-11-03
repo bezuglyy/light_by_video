@@ -826,6 +826,80 @@ class LightByVideoPanel extends HTMLElement {
       return;
     }
     const info = (this._state.actions || {})[zone.target_entity] || null;
+    const za = (this._state.zone_actions || {})[zone.id] || {};
+    const fmtDur = (sec) => {
+      const v = Math.max(0, Math.round(Number(sec) || 0));
+      if (v < 60) return v + " с";
+      const m = Math.floor(v / 60);
+      const r = v % 60;
+      return r ? `${m} мин ${r} с` : `${m} мин`;
+    };
+    const fmtClock = (iso) => {
+      if (!iso) return "—";
+      try {
+        return new Date(iso).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+      } catch (e) {
+        return iso;
+      }
+    };
+
+    // --- состояние действия
+    const st = h("div");
+    st.style.cssText = "border:1px solid var(--divider-color,#354354);border-radius:8px;padding:6px 8px;margin-bottom:8px";
+    let line;
+    if (za.cooldown_left > 0) {
+      line = `пауза после выключения — ещё ${fmtDur(za.cooldown_left)}`;
+    } else if (za.active) {
+      line = `включено · осталось ${fmtDur(za.left_sec)} (до лимита ${fmtDur(za.max_left_sec)})`;
+    } else {
+      line = "ожидание движения";
+    }
+    st.append(
+      h("div", "muted", "Состояние действия"),
+      h("div", "", line),
+      h("div", "muted", `устройство: ${za.entity_state || "—"}${za.entity_changed ? " (изменено " + fmtClock(za.entity_changed) + ")" : ""}${za.last_command_sec !== null && za.last_command_sec !== undefined ? " · команда " + fmtDur(za.last_command_sec) + " назад" : ""}`),
+      h("div", "muted", `держать ${(zone.hold_sec / 60).toFixed(0)} мин · лимит ${(zone.max_on_sec / 60).toFixed(0)} мин · пауза ${((zone.cooldown_sec || 0) / 60).toFixed(0)} мин${zone.restore ? " · не гасить, если горело" : ""}`)
+    );
+    const quick = h("div", "row");
+    quick.style.margin = "6px 0 0";
+    const bOff = h("button", "act", "Выключить сейчас");
+    bOff.onclick = () => this._testAction("off", zone.id);
+    const bCool = h("button", "act", "Сбросить паузу");
+    bCool.onclick = async () => {
+      try {
+        await this._api("/test?entry_id=" + (this._entry || ""), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "reset_cooldown", zone_id: zone.id }),
+        });
+        await this._tick();
+        this._paintPane();
+      } catch (err) {
+        this._status("пауза не сброшена: " + err.message, true);
+      }
+    };
+    quick.append(bOff, bCool);
+    st.append(quick);
+    this._pane.append(st);
+
+    // --- расписание/солнце
+    const sunEntity = this._state.settings.sun_entity || "sun.sun";
+    const sunState = this._hass.states[sunEntity];
+    const sunAttrs = sunState?.attributes || {};
+    const isNight = sunEntity === "sun.sun" ? sunState?.state === "below_horizon" : String(sunState?.state || "").toLowerCase() === "on";
+    const winFrom = zone.time_from || "00:00";
+    const winTo = zone.time_to || "24:00";
+    const dayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+    const daysText = (zone.days || []).length === 7 ? "каждый день" : (zone.days || []).map((d) => dayNames[d]).join(", ") || "—";
+    const sch = h("div");
+    sch.style.cssText = "border:1px solid var(--divider-color,#354354);border-radius:8px;padding:6px 8px;margin-bottom:8px";
+    sch.append(
+      h("div", "muted", "Расписание"),
+      h("div", "", `сейчас: ${isNight ? "ночь" : "день"} · закат ${fmtClock(sunAttrs.next_setting)} · восход ${fmtClock(sunAttrs.next_rising)}`),
+      h("div", "muted", `окно ${winFrom}–${winTo} · ${daysText} · условие: ${zone.sun === "night" ? "только после заката" : zone.sun === "day" ? "только до заката" : "всегда"}`),
+      h("div", "muted", `поправка к закату: ${this._state.settings.sun_offset_min || 0} мин · сенсор: ${sunEntity}`)
+    );
+    this._pane.append(sch);
 
     const muteRow = h("div", "row");
     muteRow.append(h("label", "", "Не беспокоить"));
