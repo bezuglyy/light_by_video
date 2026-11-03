@@ -143,12 +143,12 @@ class RtspSource:
                 raise RuntimeError(self.last_error or "нет кадра с RTSP-потока")
             await asyncio.sleep(0.25)
 
-    async def async_jpeg(self, quality: int = 75) -> bytes | None:
+    async def async_jpeg(self, quality: int = 75, width: int | None = None) -> bytes | None:
         with self._lock:
             frame = None if self._frame is None else self._frame.copy()
         if frame is None:
             return None
-        return await self.hass.async_add_executor_job(_to_jpeg, frame, quality)
+        return await self.hass.async_add_executor_job(_to_jpeg, frame, quality, width)
 
     async def async_mask(self):
         with self._lock:
@@ -196,9 +196,13 @@ def _to_image(arr) -> Image.Image:
     return Image.fromarray(arr, mode="RGB")
 
 
-def _to_jpeg(arr, quality: int) -> bytes:
+def _to_jpeg(arr, quality: int, width: int | None = None) -> bytes:
+    image = Image.fromarray(arr, mode="RGB")
+    if width and image.width > int(width):
+        height = max(1, int(round(image.height * int(width) / image.width)))
+        image = image.resize((int(width), height), Image.BILINEAR)
     out = io.BytesIO()
-    Image.fromarray(arr, mode="RGB").save(out, format="JPEG", quality=quality)
+    image.save(out, format="JPEG", quality=quality)
     return out.getvalue()
 
 
