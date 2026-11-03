@@ -23,6 +23,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             StatusSensor(coordinator, entry),
             LastActionSensor(coordinator, entry),
             NextEventSensor(coordinator, entry),
+            NextScheduleSensor(coordinator, entry),
             LastMotionSensor(coordinator, entry),
             MotionCountSensor(coordinator, entry),
             FrameChangeSensor(coordinator, entry),
@@ -205,3 +206,39 @@ class NextEventSensor(LightByVideoBase, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         item = self.data.get("next_event") or {}
         return {"in_sec": item.get("in_sec"), "zone": item.get("entity")}
+
+
+class NextScheduleSensor(LightByVideoBase, SensorEntity):
+    """Когда сработает ближайшее расписание (если заданы)."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_translation_key = "next_schedule"
+    _attr_icon = "mdi:calendar-clock"
+
+    def __init__(self, coordinator: LightByVideoCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_next_schedule"
+
+    @property
+    def native_value(self):
+        runner = getattr(self.coordinator, "schedule_runner", None)
+        if runner is None:
+            return None
+        nxt = runner.next_run()
+        if not nxt:
+            return None
+        try:
+            return dt_util.parse_datetime(nxt["at"])
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        runner = getattr(self.coordinator, "schedule_runner", None)
+        nxt = runner.next_run() if runner else None
+        return {
+            "schedule": (nxt or {}).get("name"),
+            "action": (nxt or {}).get("action"),
+            "in_sec": (nxt or {}).get("in_sec"),
+            "count": len(getattr(self.coordinator.settings, "schedules", []) or []),
+        }
