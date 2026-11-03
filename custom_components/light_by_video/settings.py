@@ -42,7 +42,6 @@ from .const import (
     INTERLOCK_OPS,
     MAX_INTERLOCKS,
     MAX_SCHEDULES,
-    SCHEDULE_ACTIONS,
     SCHEDULE_TRIGGERS,
     MAX_ON_MIN,
     MAX_ZONES,
@@ -121,40 +120,42 @@ def normalize_zone(zone: dict[str, Any], index: int) -> dict[str, Any]:
 
 
 def normalize_schedule(item: dict[str, Any], index: int) -> dict[str, Any]:
-    """Расписание принудительного включения/выключения."""
-    time_text = _hhmm(item.get("time")) or "22:00"
+    """Период, в котором разрешены действия (движение включает устройство)."""
+    trigger = str(item.get("trigger") or "time")
+    if trigger in ("range",):
+        trigger = "time"
+    if trigger not in SCHEDULE_TRIGGERS:
+        trigger = "time"
     days = item.get("days")
     if not isinstance(days, list) or not days:
         days = list(DAYS_ALL)
     days = sorted({int(d) for d in days if str(d).lstrip("-").isdigit() and 0 <= int(d) <= 6}) or list(DAYS_ALL)
-    action = str(item.get("action") or "on")
-    if action not in SCHEDULE_ACTIONS:
-        action = "on"
     try:
-        seconds = max(60, min(86400, int(item.get("seconds") or 600)))
+        seconds = max(0, min(86400, int(item.get("seconds") or 0)))
     except (TypeError, ValueError):
-        seconds = 600
-    trigger = str(item.get("trigger") or "time")
-    if trigger not in SCHEDULE_TRIGGERS:
-        trigger = "time"
+        seconds = 0
     try:
-        offset = max(-180, min(180, int(item.get("offset_min") or 0)))
+        offset = max(-300, min(300, int(item.get("offset_min") or 0)))
     except (TypeError, ValueError):
         offset = 0
+    try:
+        offset_end = max(-300, min(300, int(item.get("offset_end_min") or 0)))
+    except (TypeError, ValueError):
+        offset_end = 0
     return {
         "id": str(item.get("id") or f"s{index}"),
-        "name": str(item.get("name") or f"Расписание {index}")[:60],
+        "name": str(item.get("name") or f"Период {index}")[:60],
         "enabled": bool(item.get("enabled", True)),
-        "time": time_text,
         "trigger": trigger,
+        "time_from": _hhmm(item.get("time_from")) or "19:00",
+        "time_to": _hhmm(item.get("time_to")) or "07:00",
         "offset_min": offset,
-        "time_from": _hhmm(item.get("time_from")),
-        "time_to": _hhmm(item.get("time_to")),
+        "offset_end_min": offset_end,
         "days": days,
-        "action": action,
         "zone_id": str(item.get("zone_id") or ""),
         "seconds": seconds,
-        "last_run": str(item.get("last_run") or ""),
+        "last_start": str(item.get("last_start") or ""),
+        "last_end": str(item.get("last_end") or ""),
     }
 
 
