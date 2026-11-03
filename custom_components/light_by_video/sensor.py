@@ -24,6 +24,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             LastActionSensor(coordinator, entry),
             NextEventSensor(coordinator, entry),
             NextScheduleSensor(coordinator, entry),
+            StuckSensor(coordinator, entry),
             LastMotionSensor(coordinator, entry),
             MotionCountSensor(coordinator, entry),
             FrameChangeSensor(coordinator, entry),
@@ -246,4 +247,32 @@ class NextScheduleSensor(LightByVideoBase, SensorEntity):
             "active_schedule": (window or {}).get("schedule"),
             "active_until": (window or {}).get("until"),
             "count": len(getattr(self.coordinator.settings, "schedules", []) or []),
+        }
+
+
+class StuckSensor(LightByVideoBase, SensorEntity):
+    """Сколько устройств горят, хотя движения нет."""
+
+    _attr_translation_key = "stuck"
+    _attr_icon = "mdi:lightbulb-alert-outline"
+
+    def __init__(self, coordinator: LightByVideoCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_stuck"
+
+    @property
+    def native_value(self) -> int:
+        return len(self.coordinator.data.get("stuck") or [])
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        items = self.coordinator.data.get("stuck") or []
+        cfg = self.coordinator.data.get("stuck_config") or {}
+        return {
+            "entities": [i.get("entity") for i in items],
+            "zones": [i.get("zone") for i in items],
+            "details": items,
+            "mode": cfg.get("mode"),
+            "grace_min": cfg.get("grace_min"),
+            "enabled": cfg.get("enabled"),
         }
