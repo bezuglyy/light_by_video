@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "light_by_video"
 NAME = "Свет по видео"
 MANUFACTURER = "techlan.su"
-VERSION = "0.5.1"
+VERSION = "0.6.0"
 
 # --- ключи настроек (config entry data/options) ---
 CONF_CAMERA_ENTITY = "camera_entity"
@@ -22,6 +22,7 @@ CONF_MUTE_UNTIL = "mute_until"  # режим «не беспокоить» до 
 CONF_INTERLOCKS = "interlocks"  # запреты по сенсорам
 CONF_SUN_ENTITY = "sun_entity"  # сенсор «темно» (по умолчанию sun.sun)
 CONF_SUN_OFFSET = "sun_offset_min"  # поправка к закату, минуты (минус — раньше)
+CONF_CALIBRATION = "calibration"  # данные калибровки масштаба (эталонный объект на кадре)
 
 DEFAULT_GO2RTC_BASE = "http://127.0.0.1:1984"
 DEFAULT_SCAN_INTERVAL = 1.5
@@ -168,6 +169,21 @@ DETECTOR_PRESETS: dict[str, dict] = {
         "diff_t": 28.0,
         "blur": 1,
     },
+}
+
+# --- калибровка масштаба (по эталонному объекту на кадре) ---
+DEFAULT_CALIBRATION: dict = {
+    "object_name": "",
+    "object_m": 0.0,      # реальный размер эталона, м
+    "object_px": 0.0,     # его размер на кадре, px
+    "plate_m": 0.520,     # второй эталон (номерной знак РФ), м
+    "plate_px": 0.0,      # он же на кадре, px
+    "px_per_m": 0.0,      # итоговый масштаб
+    "person_m": 1.70,     # средний рост человека
+    "frame_w": 1920,      # ширина кадра, на котором мерили
+    "frame_h": 1080,
+    "measured_at": "",
+    "note": "",
 }
 
 MAX_EVENT_LOG = 200
