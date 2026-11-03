@@ -19,8 +19,8 @@ from .const import DEFAULT_GO2RTC_BASE, FETCH_RETRIES, FETCH_TIMEOUT
 _LOGGER = logging.getLogger(__name__)
 
 RTSP_STALE_SEC = 15.0  # кадр старше — считаем источник недоступным
-RTSP_WATCHDOG_SEC = 9.0  # нет новых кадров — переоткрываем поток
 RTSP_RECONNECT_SEC = 3.0
+RTSP_TIMEOUT_US = "5000000"  # 5 с: чтение из потока не блокируется навсегда
 
 
 def build_http_url(value: str, go2rtc_base: str = DEFAULT_GO2RTC_BASE) -> str:
@@ -106,8 +106,6 @@ class RtspSource:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._watchdog: threading.Thread | None = None
-        self._container: Any = None
         self.last_error: str = ""
 
     # ------------------------------------------------------------------ жизнь
@@ -116,17 +114,11 @@ class RtspSource:
             return
         self._thread = threading.Thread(target=self._run, name="light_by_video_rtsp", daemon=True)
         self._thread.start()
-        self._watchdog = threading.Thread(target=self._watch, name="light_by_video_rtsp_wd", daemon=True)
-        self._watchdog.start()
 
     async def async_close(self) -> None:
+        # ВАЖНО: не закрываем контейнер из другого потока — ffmpeg/PyAV не потокобезопасен
+        # (на этом HA падал с SIGSEGV). Просто просим поток завершиться и ждём.
         self._stop.set()
-        container = self._container
-        if container is not None:
-            try:
-                container.close()
-            except Exception:  # noqa: BLE001
-                pass
         thread = self._thread
         if thread is not None:
             await self.hass.async_add_executor_job(thread.join, 5.0)
@@ -163,21 +155,6 @@ class RtspSource:
             return None if self._frame is None else self._frame.copy()
 
     # ------------------------------------------------------------------ поток
-    def _watch(self) -> None:
-        """Переоткрыть поток, если кадры перестали приходить."""
-        while not self._stop.wait(3.0):
-            if self.age() < RTSP_WATCHDOG_SEC:
-                continue
-            container = self._container
-            if container is None:
-                continue
-            _LOGGER.warning("light_by_video: нет кадров %.0f с — переоткрываю RTSP", self.age())
-            try:
-                container.close()
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.debug("light_by_video: контейнер не закрылся: %s", err)
-            self._stop.wait(RTSP_RECONNECT_SEC)
-
     def _run(self) -> None:
         import av
 
@@ -185,10 +162,13 @@ class RtspSource:
             try:
                 with av.open(
                     self.url,
-                    options={"rtsp_transport": "tcp", "rtsp_flags": "prefer_tcp"},
+                    options={
+                        "rtsp_transport": "tcp",
+                        "rtsp_flags": "prefer_tcp",
+                        "stimeout": RTSP_TIMEOUT_US,
+                    },
                     timeout=10.0,
                 ) as container:
-                    self._container = container
                     stream = container.streams.video[0]
                     stream.thread_type = "AUTO"
                     self.last_error = ""
@@ -205,8 +185,7 @@ class RtspSource:
                 self.last_error = str(err)
                 _LOGGER.warning("light_by_video: RTSP ошибка (%s): %s", _hide(self.url), err)
                 self._stop.wait(RTSP_RECONNECT_SEC)
-            finally:
-                self._container = None
+
 
 
 def _open_bytes(data: bytes) -> Image.Image:
