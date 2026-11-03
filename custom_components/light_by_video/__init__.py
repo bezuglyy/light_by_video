@@ -9,11 +9,13 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.util import dt as dt_util
 
 from .actions import ActionEngine
 from .const import DOMAIN
 from .coordinator import LightByVideoCoordinator
 from .panel import async_register_panel, async_unregister_panel
+from .schedules import ScheduleRunner
 from .settings import get_settings
 from .views import (
     LightByVideoEventsView,
@@ -49,11 +51,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     store = hass.data.setdefault(DOMAIN, {})
     store[entry.entry_id] = coordinator
     store[f"actions:{entry.entry_id}"] = actions
+    runner = ScheduleRunner(hass, entry, settings, actions, coordinator)
+    coordinator.schedule_runner = runner
+    store[f"runner:{entry.entry_id}"] = runner
 
     await _async_register_http(hass)
     await _async_register_services(hass)
     await async_register_panel(hass)
 
+    runner.start()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     _LOGGER.info("light_by_video: интеграция запущена (%s)", entry.title)
@@ -84,6 +90,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
     )
     schema_stop = vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("entity"): cv.string})
     schema_reset = vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("zone_id"): cv.string})
+    schema_schedule = vol.Schema({vol.Optional("entry_id"): cv.string, vol.Required("schedule_id"): cv.string})
 
     async def _trigger(call) -> None:
         coordinator = _pick_coordinator(hass, call.data.get("entry_id"))
@@ -111,6 +118,20 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             await coordinator.actions.async_stop_all("сервис stop")
         await coordinator.async_request_refresh()
 
+    async def _run_schedule(call) -> None:
+        coordinator = _pick_coordinator(hass, call.data.get("entry_id"))
+        if coordinator is None:
+            return
+        runner = getattr(coordinator, "schedule_runner", None)
+        schedule_id = str(call.data.get("schedule_id") or "")
+        if runner is None or not schedule_id:
+            return
+        sched = next((x for x in runner.settings.schedules if x.get("id") == schedule_id), None)
+        if sched is None:
+            return
+        await runner._async_run(sched, dt_util.now(), 0.0)
+        await coordinator.async_request_refresh()
+
     async def _reset(call) -> None:
         coordinator = _pick_coordinator(hass, call.data.get("entry_id"))
         if coordinator is None:
@@ -126,6 +147,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "trigger", _trigger, schema=schema_trigger)
     hass.services.async_register(DOMAIN, "stop", _stop, schema=schema_stop)
     hass.services.async_register(DOMAIN, "reset_cooldown", _reset, schema=schema_reset)
+    hass.services.async_register(DOMAIN, "run_schedule", _run_schedule, schema=schema_schedule)
 
 
 async def _async_register_http(hass: HomeAssistant) -> None:
