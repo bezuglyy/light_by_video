@@ -93,6 +93,7 @@ class LightByVideoPanel extends HTMLElement {
         this._paintZones();
       }
       this._paintZoneStates();
+      this._paintObjects();
     } catch (err) {
       this._status("нет связи с интеграцией: " + err.message, true);
     }
@@ -152,6 +153,9 @@ class LightByVideoPanel extends HTMLElement {
       .zone .size { position:absolute; right:0; bottom:-18px; font-size:11px; white-space:nowrap;
                     background:rgba(13,17,23,.8); color:#e6edf3; padding:1px 4px; border-radius:4px; }
       .zone.selected { outline:1px solid #e6edf3; }
+      .obj { position:absolute; border:1px dashed #f0c419; box-sizing:border-box; pointer-events:none; }
+      .obj .otag { position:absolute; left:0; top:-16px; font-size:10px; background:rgba(13,17,23,.85);
+                   color:#f0c419; padding:0 4px; border-radius:3px; white-space:nowrap; }
       .legend { font-size:12px; opacity:.7; margin-top:6px; }
       .side { flex:0 0 380px; min-width:300px; }
       .tabs { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px; }
@@ -244,7 +248,7 @@ class LightByVideoPanel extends HTMLElement {
   }
 
   _paintTabs() {
-    const tabs = [["zones", "Зоны"], ["action", "Действия"], ["detector", "Детектор"], ["source", "Источник"], ["journal", "Журнал"]];
+    const tabs = [["zones", "Зоны"], ["action", "Действия"], ["detector", "Детектор"], ["interlocks", "Запреты"], ["source", "Источник"], ["journal", "Журнал"]];
     this._tabsEl.innerHTML = "";
     for (const [id, title] of tabs) {
       const b = h("button", this._tab === id ? "on" : "", title);
@@ -357,6 +361,23 @@ class LightByVideoPanel extends HTMLElement {
       this._overlay.append(node);
     }
     this._paintZoneSelection();
+  }
+
+  _paintObjects() {
+    if (!this._overlay || this._dragging) return;
+    this._overlay.querySelectorAll(".obj").forEach((n) => n.remove());
+    const items = (this._state?.objects || {}).items || [];
+    for (const it of items) {
+      const box = it.box || [];
+      if (box.length !== 4) continue;
+      const node = h("div", "obj");
+      node.style.left = box[0] * 100 + "%";
+      node.style.top = box[1] * 100 + "%";
+      node.style.width = box[2] * 100 + "%";
+      node.style.height = box[3] * 100 + "%";
+      node.append(h("span", "otag", `${it.name || ""} ${Math.round((it.conf || 0) * 100)}%`));
+      this._overlay.append(node);
+    }
   }
 
   _paintZoneSelection() {
@@ -485,6 +506,7 @@ class LightByVideoPanel extends HTMLElement {
     if (this._tab === "zones") this._paneZones();
     else if (this._tab === "action") this._paneAction();
     else if (this._tab === "detector") this._paneDetector();
+    else if (this._tab === "interlocks") this._paneInterlocks();
     else if (this._tab === "source") this._paneSource();
     else this._paneJournal();
   }
@@ -639,6 +661,16 @@ class LightByVideoPanel extends HTMLElement {
     this._paintPane();
   }
 
+  async _saveGlobal(patch) {
+    await this._api("/settings?refresh=1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    await this._tick();
+    this._paintPane();
+  }
+
   _paneAction() {
     const zone = this._zone();
     if (!zone) {
@@ -662,6 +694,23 @@ class LightByVideoPanel extends HTMLElement {
     if (muted && muted > new Date()) {
       this._pane.append(h("div", "muted", "Действует до " + muted.toLocaleString("ru-RU")));
     }
+
+    const sunOptions = [["sun.sun", "sun.sun (встроенный, закат/восход)"]];
+    for (const eid of Object.keys(this._hass.states)) {
+      if (eid.startsWith("binary_sensor.") && /dark|night|sun|light|темен|ночь|освещ/i.test(eid)) {
+        sunOptions.push([eid, (this._hass.states[eid].attributes?.friendly_name || eid) + " · " + eid]);
+      }
+    }
+    this._pane.append(
+      this._row(
+        "Сенсор «темно»",
+        this._selectEl(sunOptions, this._state.settings.sun_entity || "sun.sun", (v) => this._saveGlobal({ sun_entity: v }))
+      ),
+      this._row(
+        "Поправка к закату, мин",
+        this._number(this._state.settings.sun_offset_min || 0, (v) => this._saveGlobal({ sun_offset_min: Number(v) }), { min: -180, max: 180, step: 5 })
+      )
+    );
 
     this._pane.append(h("div", "muted", "Зона: " + zone.name));
 
@@ -739,6 +788,126 @@ class LightByVideoPanel extends HTMLElement {
     this._pane.append(testRow);
   }
 
+  _ruleHit(rule) {
+    const st = this._hass.states[rule.entity];
+    if (!st) return [false, "нет сущности"];
+    const op = rule.op || "is_on";
+    const raw = rule.attribute ? st.attributes?.[rule.attribute] : st.state;
+    const stt = String(st.state).toLowerCase();
+    const on = ["on", "true", "1", "yes", "home", "open", "opened"].includes(stt);
+    const off = ["off", "false", "0", "no", "not_home", "closed"].includes(stt);
+    if (op === "is_on") return [on, stt];
+    if (op === "is_off") return [off, stt];
+    const n = Number(raw);
+    const v = Number(rule.value);
+    if (!Number.isFinite(n) || !Number.isFinite(v)) return [false, "—"];
+    const hit =
+      op === "above" ? n > v : op === "below" ? n < v : op === "equal" ? Math.abs(n - v) < 1e-9 : Math.abs(n - v) > 1e-9;
+    return [hit, String(n)];
+  }
+
+  async _saveInterlocks(rules) {
+    await this._api("/settings?refresh=1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ interlocks: rules }),
+    });
+    await this._tick();
+    this._paintPane();
+  }
+
+  _paneInterlocks() {
+    const rules = (this._state.settings.interlocks || []).slice();
+    const OPS = [
+      ["is_on", "включён / открыт"],
+      ["is_off", "выключен / закрыт"],
+      ["above", "больше"],
+      ["below", "меньше"],
+      ["equal", "равно"],
+      ["not_equal", "не равно"],
+    ];
+    const MODES = [["block", "запрещать"], ["warn", "предупреждать"]];
+
+    this._pane.append(
+      h("div", "muted", "Пока условие выполняется, действие не выполняется (режим «запрещать») либо только пишется в журнал.")
+    );
+
+    if (!rules.length) this._pane.append(h("div", "muted", "Правил пока нет"));
+    rules.forEach((rule, idx) => {
+      const [hit, value] = this._ruleHit(rule);
+      const card = h("div", "zitem" + (hit && rule.mode === "block" ? " on" : ""));
+      card.style.flexDirection = "column";
+      card.style.alignItems = "stretch";
+      const head = h("div", "row");
+      head.style.margin = "0";
+      const en = document.createElement("input");
+      en.type = "checkbox";
+      en.checked = rule.enabled !== false;
+      en.onchange = () => {
+        const next = rules.slice();
+        next[idx] = { ...rule, enabled: en.checked };
+        this._saveInterlocks(next);
+      };
+      const nameInput = this._text(rule.name, (v) => {
+        const next = rules.slice();
+        next[idx] = { ...rule, name: v };
+        this._saveInterlocks(next);
+      });
+      nameInput.style.flex = "1 1 auto";
+      const del = h("button", "act", "✕");
+      del.onclick = () => this._saveInterlocks(rules.filter((r) => r.id !== rule.id));
+      head.append(en, nameInput, del);
+      card.append(head);
+
+      const entInput = this._text(rule.entity, (v) => {
+        const next = rules.slice();
+        next[idx] = { ...rule, entity: v };
+        this._saveInterlocks(next);
+      });
+      entInput.setAttribute("list", "lbv-entities");
+      const opSel = this._selectEl(OPS, rule.op, (v) => {
+        const next = rules.slice();
+        next[idx] = { ...rule, op: v };
+        this._saveInterlocks(next);
+      });
+      const modeSel = this._selectEl(MODES, rule.mode, (v) => {
+        const next = rules.slice();
+        next[idx] = { ...rule, mode: v };
+        this._saveInterlocks(next);
+      });
+      const valInput = this._number(rule.value ?? "", (v) => {
+        const next = rules.slice();
+        next[idx] = { ...rule, value: v === "" ? null : Number(v) };
+        this._saveInterlocks(next);
+      }, { step: 1 });
+      card.append(this._row("Сущность", entInput), this._row("Условие", opSel), this._row("Значение", valInput), this._row("Режим", modeSel));
+      card.append(h("div", "muted", `сейчас: ${hit ? "срабатывает" : "нет"} (${value})`));
+      this._pane.append(card);
+    });
+
+    const dl = document.createElement("datalist");
+    dl.id = "lbv-entities";
+    for (const eid of Object.keys(this._hass.states)) {
+      const o = document.createElement("option");
+      o.value = eid;
+      dl.append(o);
+    }
+    this._pane.append(dl);
+
+    const add = h("button", "act primary", "＋ Добавить запрет");
+    add.style.marginTop = "8px";
+    add.onclick = () => {
+      const next = rules.concat([
+        { id: "i" + Date.now(), name: "Новый запрет", entity: "", op: "is_on", value: null, mode: "block", enabled: true },
+      ]);
+      this._saveInterlocks(next);
+    };
+    this._pane.append(add);
+    this._pane.append(
+      h("div", "muted", "Примеры: «Ворота открыты» (switch/вход is_on → запрещать), «Свет уже горит» (устройство is_on), «На улице светло» (датчик освещённости above 100).")
+    );
+  }
+
   _paneSource() {
     const st = this._state.settings;
     const camOptions = [["", "— не выбрана (RTSP / URL) —"]];
@@ -779,6 +948,15 @@ class LightByVideoPanel extends HTMLElement {
     );
   }
 
+  async _applyPreset(name) {
+    const presets = {
+      street: { mode: "objects", objects_conf: 0.25, objects_tiling: 2, objects_require_motion: true, objects_only_on_motion: true, min_ratio: 0.012, diff_t: 24 },
+      yard: { mode: "objects", objects_conf: 0.3, objects_tiling: 1, objects_require_motion: true, objects_only_on_motion: true, min_ratio: 0.015, diff_t: 26 },
+      room: { mode: "frame", objects_tiling: 1, min_ratio: 0.02, diff_t: 28, blur: 1 },
+    };
+    await this._saveDetector(presets[name] || {});
+  }
+
   _paneDetector() {
     const d = this._state.settings.detector;
     const obj = this._state.objects || {};
@@ -787,6 +965,15 @@ class LightByVideoPanel extends HTMLElement {
       d.mode || "frame",
       (v) => this._saveDetector({ mode: v })
     );
+    const presetRow = h("div", "row");
+    presetRow.append(h("label", "", "Пресеты"));
+    for (const [key, title] of [["street", "Улица (дальние)"], ["yard", "Двор"], ["room", "Помещение"]]) {
+      const b = h("button", "act", title);
+      b.onclick = () => this._applyPreset(key);
+      presetRow.append(b);
+    }
+    this._pane.append(presetRow);
+
     this._pane.append(
       this._row("Детектор", modeSelect),
       this._row("Сервис объектов", this._text(d.objects_url, (v) => this._saveDetector({ objects_url: v }))),
@@ -794,6 +981,16 @@ class LightByVideoPanel extends HTMLElement {
       this._row("Классы COCO", this._text(d.objects_classes, (v) => this._saveDetector({ objects_classes: v }))),
       this._row("Только вместе с движением", this._checkbox(d.objects_require_motion !== false, (v) => this._saveDetector({ objects_require_motion: v }))),
       this._row("Инференс только при движении", this._checkbox(d.objects_only_on_motion !== false, (v) => this._saveDetector({ objects_only_on_motion: v }))),
+      this._row(
+        "Дальние объекты",
+        this._selectEl(
+          [[1, "выкл"], [2, "дробить, если не нашли"], [3, "дробить всегда (медленно)"]],
+          Number(d.objects_tiling || 1),
+          (v) => this._saveDetector({ objects_tiling: Number(v) })
+        )
+      ),
+      this._row("Ширина кадра для детектора", this._number(d.objects_width || 0, (v) => this._saveDetector({ objects_width: Number(v) }), { min: 0, max: 1920, step: 40 })),
+      this._row("Мин. высота объекта, %", this._number(((d.objects_min_h || 0) * 100).toFixed(1), (v) => this._saveDetector({ objects_min_h: Number(v) / 100 }), { min: 0, max: 50, step: 0.5 })),
       h("div", "muted", `Детектор: ${(d.mode || "frame") === "objects" ? (obj.ok === false ? "ошибка — " + (obj.error || "") : `ок, объектов ${obj.count ?? 0}, ${Math.round(obj.ms || 0)} мс`) : "разность кадров"}`)
     );
     this._pane.append(
