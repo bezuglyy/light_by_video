@@ -43,6 +43,7 @@ from .const import (
     MAX_INTERLOCKS,
     MAX_SCHEDULES,
     SCHEDULE_ACTIONS,
+    SCHEDULE_TRIGGERS,
     MAX_ON_MIN,
     MAX_ZONES,
     ZONE_MAX_POINTS,
@@ -133,11 +134,22 @@ def normalize_schedule(item: dict[str, Any], index: int) -> dict[str, Any]:
         seconds = max(60, min(86400, int(item.get("seconds") or 600)))
     except (TypeError, ValueError):
         seconds = 600
+    trigger = str(item.get("trigger") or "time")
+    if trigger not in SCHEDULE_TRIGGERS:
+        trigger = "time"
+    try:
+        offset = max(-180, min(180, int(item.get("offset_min") or 0)))
+    except (TypeError, ValueError):
+        offset = 0
     return {
         "id": str(item.get("id") or f"s{index}"),
         "name": str(item.get("name") or f"Расписание {index}")[:60],
         "enabled": bool(item.get("enabled", True)),
         "time": time_text,
+        "trigger": trigger,
+        "offset_min": offset,
+        "time_from": _hhmm(item.get("time_from")),
+        "time_to": _hhmm(item.get("time_to")),
         "days": days,
         "action": action,
         "zone_id": str(item.get("zone_id") or ""),
@@ -344,8 +356,13 @@ class Settings:
             for i, item in enumerate(raw_schedules or [])
             if isinstance(item, dict)
         ][:MAX_SCHEDULES]
+        raw_catchup = merged.get(CONF_CATCHUP_MIN)
         try:
-            self.catchup_min = max(0, min(1440, int(merged.get(CONF_CATCHUP_MIN) or DEFAULT_CATCHUP_MIN)))
+            self.catchup_min = (
+                DEFAULT_CATCHUP_MIN
+                if raw_catchup is None or raw_catchup == ""
+                else max(0, min(1440, int(raw_catchup)))
+            )
         except (TypeError, ValueError):
             self.catchup_min = DEFAULT_CATCHUP_MIN
         self.mute_until_raw = str(merged.get(CONF_MUTE_UNTIL) or "")
@@ -397,7 +414,7 @@ class Settings:
                 ][:MAX_SCHEDULES]
             elif key == CONF_CATCHUP_MIN:
                 try:
-                    options[key] = max(0, min(1440, int(value)))
+                    options[key] = DEFAULT_CATCHUP_MIN if value in (None, "") else max(0, min(1440, int(value)))
                 except (TypeError, ValueError):
                     options[key] = DEFAULT_CATCHUP_MIN
             elif key == CONF_CALIBRATION and isinstance(value, dict):
