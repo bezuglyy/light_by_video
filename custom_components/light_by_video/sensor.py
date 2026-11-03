@@ -224,7 +224,7 @@ class NextScheduleSensor(LightByVideoBase, SensorEntity):
         runner = getattr(self.coordinator, "schedule_runner", None)
         if runner is None:
             return None
-        nxt = runner.next_run()
+        nxt = runner.next_start()
         if not nxt:
             return None
         try:
@@ -235,10 +235,15 @@ class NextScheduleSensor(LightByVideoBase, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         runner = getattr(self.coordinator, "schedule_runner", None)
-        nxt = runner.next_run() if runner else None
+        nxt = runner.next_start() if runner else None
+        window = runner.window_state() if runner else {}
         return {
             "schedule": (nxt or {}).get("name"),
-            "action": (nxt or {}).get("action"),
+            "trigger": (nxt or {}).get("trigger"),
             "in_sec": (nxt or {}).get("in_sec"),
+            "period_end": (nxt or {}).get("end"),
+            "active": bool((window or {}).get("active")),
+            "active_schedule": (window or {}).get("schedule"),
+            "active_until": (window or {}).get("until"),
             "count": len(getattr(self.coordinator.settings, "schedules", []) or []),
         }
