@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "light_by_video"
 NAME = "Свет по видео"
 MANUFACTURER = "techlan.su"
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 
 # --- ключи настроек (config entry data/options) ---
 CONF_CAMERA_ENTITY = "camera_entity"
@@ -23,6 +23,8 @@ CONF_INTERLOCKS = "interlocks"  # запреты по сенсорам
 CONF_SUN_ENTITY = "sun_entity"  # сенсор «темно» (по умолчанию sun.sun)
 CONF_SUN_OFFSET = "sun_offset_min"  # поправка к закату, минуты (минус — раньше)
 CONF_CALIBRATION = "calibration"  # данные калибровки масштаба (эталонный объект на кадре)
+CONF_SCHEDULES = "schedules"  # расписания принудительного вкл/выкл
+CONF_CATCHUP_MIN = "catchup_min"  # догон пропущенного после простоя, минуты
 
 DEFAULT_GO2RTC_BASE = "http://127.0.0.1:1984"
 DEFAULT_SCAN_INTERVAL = 1.5
@@ -109,6 +111,7 @@ EVENT_SKIPPED = "skipped"
 EVENT_CAMERA_LOST = "camera_lost"
 EVENT_CAMERA_BACK = "camera_back"
 EVENT_LIGHTING = "lighting"
+EVENT_SCHEDULE = "schedule"
 EVENT_BUS = f"{DOMAIN}_event"
 
 EVENT_TITLES = {
@@ -120,6 +123,7 @@ EVENT_TITLES = {
     EVENT_CAMERA_LOST: "Источник кадра недоступен",
     EVENT_CAMERA_BACK: "Источник кадра снова доступен",
     EVENT_LIGHTING: "Смена освещения (не движение)",
+    EVENT_SCHEDULE: "Сработало расписание",
 }
 
 # --- запреты по сенсорам ---
@@ -184,6 +188,22 @@ DEFAULT_CALIBRATION: dict = {
     "frame_h": 1080,
     "measured_at": "",
     "note": "",
+}
+
+# --- расписания ---
+SCHEDULE_ACTIONS = ("on", "off")
+MAX_SCHEDULES = 20
+DEFAULT_CATCHUP_MIN = 360  # 6 часов, как в «Времени света»
+DEFAULT_SCHEDULE: dict = {
+    "id": "s1",
+    "name": "Расписание 1",
+    "enabled": True,
+    "time": "22:00",
+    "days": [0, 1, 2, 3, 4, 5, 6],
+    "action": "on",
+    "zone_id": "z1",
+    "seconds": 600,
+    "last_run": "",
 }
 
 MAX_EVENT_LOG = 200
