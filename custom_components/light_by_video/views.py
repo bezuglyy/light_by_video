@@ -165,6 +165,7 @@ class LightByVideoStateView(HomeAssistantView):
                 "zone_actions": data.get("zone_actions") or {},
                 "objects": data.get("objects"),
                 "next_schedule": data.get("next_schedule"),
+                "window": data.get("window"),
                 "last_action": data.get("last_action"),
                 "next_event": data.get("next_event"),
                 "detector_mode": data.get("detector_mode"),
