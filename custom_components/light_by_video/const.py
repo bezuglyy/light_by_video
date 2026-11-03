@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "light_by_video"
 NAME = "Свет по видео"
 MANUFACTURER = "techlan.su"
-VERSION = "0.4.1"
+VERSION = "0.5.0"
 
 # --- ключи настроек (config entry data/options) ---
 CONF_CAMERA_ENTITY = "camera_entity"
@@ -66,6 +66,8 @@ ROLE_IGNORE = "ignore"
 
 DAYS_ALL = [0, 1, 2, 3, 4, 5, 6]  # 0 = понедельник
 MAX_ZONES = 20
+ZONE_MIN_POINTS = 3  # многоугольник: минимум вершин
+ZONE_MAX_POINTS = 24
 HOLD_MIN = 5  # секунд
 HOLD_MAX = 86400
 MAX_ON_MIN = 5
