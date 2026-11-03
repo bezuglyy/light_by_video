@@ -140,11 +140,10 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if cache and age_ms < int(cfg.get("objects_cache_ms", 700)):
             return cache
         if bool(cfg.get("objects_only_on_motion", True)) and not motion:
-            idle_ms = int(cfg.get("objects_idle_cache_ms", 3000))
-            if cache and age_ms < idle_ms:
-                return cache
-            if not cache:
-                return {"ts": now, "objects": [], "count": 0, "ok": True, "error": "", "ms": 0, "skipped": True}
+            # без движения инференс не нужен вовсе: отдаём прошлый результат (или пустой)
+            if cache:
+                return {**cache, "skipped": True}
+            return {"ts": now, "objects": [], "count": 0, "ok": True, "error": "", "ms": 0, "skipped": True}
 
         jpeg = await self.async_jpeg()
         if not jpeg:
