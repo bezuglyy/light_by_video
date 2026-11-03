@@ -15,8 +15,13 @@ trigger:
     seconds:
       name: Держать, секунд
       description: Переопределить время удержания для этого вызова.
-      example: 600
+      example: 300
       selector: {number: {min: 5, max: 86400, unit_of_measurement: с, mode: box}}
+    ignore_window:
+      name: Игнорировать период
+      description: Включить даже вне периода работы (по умолчанию — с учётом периода).
+      default: false
+      selector: {boolean: {}}
 stop:
   name: Выключить
   description: Выключить устройство, включённое интеграцией (все или указанное).
@@ -37,16 +42,4 @@ reset_cooldown:
       selector: {text: {}}
     zone_id:
       name: Зона
-      selector: {text: {}}
-run_schedule:
-  name: Запустить расписание
-  description: Выполнить расписание немедленно (как если бы наступило его время).
-  fields:
-    entry_id:
-      name: Запись интеграции
-      selector: {text: {}}
-    schedule_id:
-      name: Расписание
-      description: Идентификатор расписания из вкладки «Расписания».
-      example: s1
       selector: {text: {}}
