@@ -71,6 +71,7 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._lost_emitted = False
         self._session: aiohttp.ClientSession | None = None
         self._unsub_bus = hass.bus.async_listen(EVENT_BUS, self._on_action_event)
+        self.schedule_runner = None
         self._objects: dict[str, Any] = {}
         self.event_log: deque[dict[str, Any]] = deque(maxlen=MAX_EVENT_LOG)
         self.started_at = time.time()
@@ -361,6 +362,7 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "zone_actions": {z["id"]: self.actions.zone_status(z) for z in self.settings.zones},
             "last_action": self._last_action(),
             "next_event": self._next_event(),
+            "next_schedule": (self.schedule_runner.next_run() if getattr(self, "schedule_runner", None) else None),
             "objects": objects_info,
             "detector_mode": str(self.settings.detector.get("mode") or "frame"),
             "last_motion": self.last_motion_ts,
