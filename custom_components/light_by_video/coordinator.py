@@ -186,7 +186,8 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @staticmethod
     def _zone_object_hit(zone: dict[str, Any], objects: list[dict[str, Any]]) -> tuple[bool, dict[str, Any] | None]:
-        """Есть ли в зоне объект (центр внутри зоны или >30 % площади объекта)."""
+        """Есть ли в зоне объект: центр внутри зоны или объект перекрывает её более чем на 30 %."""
+        points = zone.get("points") or None
         x = float(zone.get("x") or 0.0)
         y = float(zone.get("y") or 0.0)
         w = float(zone.get("w") or 0.0)
@@ -198,11 +199,15 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
             bx, by, bw, bh = (float(v) for v in box)
             cx, cy = bx + bw / 2.0, by + bh / 2.0
-            inside = x <= cx <= x + w and y <= cy <= y + h
-            ix = max(0.0, min(x + w, bx + bw) - max(x, bx))
-            iy = max(0.0, min(y + h, by + bh) - max(y, by))
-            area = bw * bh
-            ratio = (ix * iy) / area if area > 1e-9 else 0.0
+            if points:
+                inside = _point_in_poly(cx, cy, points)
+                ratio = _poly_overlap(bx, by, bw, bh, points)
+            else:
+                inside = x <= cx <= x + w and y <= cy <= y + h
+                inter_w = max(0.0, min(x + w, bx + bw) - max(x, bx))
+                inter_h = max(0.0, min(y + h, by + bh) - max(y, by))
+                area = bw * bh
+                ratio = (inter_w * inter_h) / area if area > 1e-9 else 0.0
             if inside or ratio >= 0.3:
                 if best is None or float(obj.get("conf") or 0) > float(best.get("conf") or 0):
                     best = obj
@@ -424,3 +429,32 @@ def _source_name(settings: Settings) -> str:
         rest = value.split("://", 1)[1]
         return "rtsp://" + (rest.split("@", 1)[1] if "@" in rest else rest)
     return value
+
+
+def _point_in_poly(px: float, py: float, points: list[list[float]]) -> bool:
+    """Точка внутри многоугольника (алгоритм трассировки луча)."""
+    inside = False
+    n = len(points)
+    j = n - 1
+    for i in range(n):
+        xi, yi = float(points[i][0]), float(points[i][1])
+        xj, yj = float(points[j][0]), float(points[j][1])
+        if (yi > py) != (yj > py):
+            x_cross = (xj - xi) * (py - yi) / (yj - yi + 1e-12) + xi
+            if px < x_cross:
+                inside = not inside
+        j = i
+    return inside
+
+def _poly_overlap(bx: float, by: float, bw: float, bh: float, points: list[list[float]], steps: int = 14) -> float:
+    """Доля площади объекта внутри многоугольника (сетка steps×steps)."""
+    hit = 0
+    total = 0
+    for iy in range(steps):
+        py = by + (iy + 0.5) * bh / steps
+        for ix in range(steps):
+            px = bx + (ix + 0.5) * bw / steps
+            total += 1
+            if _point_in_poly(px, py, points):
+                hit += 1
+    return hit / total if total else 0.0
