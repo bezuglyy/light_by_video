@@ -338,6 +338,15 @@ class ActionEngine:
             except Exception:  # noqa: BLE001
                 pass
         if item is None:
+            if not force:
+                return
+            # принудительное выключение устройства, которое включали не мы (расписание/кнопка)
+            state = self.hass.states.get(entity)
+            if state is not None and state.state in _ON_STATES:
+                if await self._async_set(entity, False, reason=reason):
+                    await self._async_event(EVENT_ACTION_OFF, {"entity": entity, "reason": reason})
+                    self.hass.async_create_task(self._async_verify(entity, False))
+            await self._async_save()
             return
 
         state = self.hass.states.get(entity)
