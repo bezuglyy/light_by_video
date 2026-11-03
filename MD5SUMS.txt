@@ -1,16 +1,16 @@
 2787ef641e13f660820c35fba00ec1d7  custom_components/light_by_video/actions.py
 2ec23cbae220fe9fe86b127de35269d6  custom_components/light_by_video/binary_sensor.py
 230c8ca8def3665c52ebe3b0253a65b3  custom_components/light_by_video/config_flow.py
-c6afe30379d6345b61044b44827128a3  custom_components/light_by_video/const.py
-e2b198ea2bfbefab533b4c8f43952b62  custom_components/light_by_video/coordinator.py
+3fa45e88740101261e4b5072fe993b9a  custom_components/light_by_video/const.py
+d2b13ce62948984a4ea7b369bbe7b830  custom_components/light_by_video/coordinator.py
 c00b9561c036384740e6cc3a1bca055c  custom_components/light_by_video/frontend/panel.js
 bb055d9ba261d30bdab33b2dd09cfc1d  custom_components/light_by_video/__init__.py
-6b93d529dcb4cc57ad952108b6ee89e1  custom_components/light_by_video/manifest.json
+5ba5a572c7eb4b3b449934d2d06c9c7c  custom_components/light_by_video/manifest.json
 30db29077042dc7217c38c91e63ea6d4  custom_components/light_by_video/motion.py
 fae9c2dc56bcc86d48dedb822698fb19  custom_components/light_by_video/panel.py
 d7a4d06e3d38ba25260c377bc1ddc1f4  custom_components/light_by_video/sensor.py
 92a98f00cadf79cb7483bca600ed9157  custom_components/light_by_video/settings.py
-14c6bb573269b580f5c425e6aa117b31  custom_components/light_by_video/sources.py
+12f25edbab33346f63e7369ea68be025  custom_components/light_by_video/sources.py
 a988dd007ab1fa6c5c361ed25f50bcc1  custom_components/light_by_video/strings.json
 537984ca7dec0c7eae3ecfa6bdfa3c42  custom_components/light_by_video/switch.py
 249d2463e4aeddbf3caf603dd1eb6033  custom_components/light_by_video/translations/en.json
@@ -22,8 +22,8 @@ ec0d91fa37c12e7ed59b13bdb390cb08  detector/service.py
 88b3c8d0f968997228ad14e016c70570  docs/FAQ.md
 bd12150bc70b1084bf86630a5d01725f  docs/FAQ.pdf
 2f3ed41ba3d8fe9af1515a374b3e6bf5  docs/FAQ.xlsx
-61b3e443fae98b7cbeef5008ba594443  docs/ОПИСАНИЕ-ПРОЕКТА.md
-dec2d54910cc00fbbd2f682f79b2d6d5  docs/ОПИСАНИЕ-ПРОЕКТА.pdf
+dcb2ec7e04e35bf90256486dc9c9f69d  docs/ОПИСАНИЕ-ПРОЕКТА.md
+ac47f50ed7105dbb300590e59f2a70dc  docs/ОПИСАНИЕ-ПРОЕКТА.pdf
 450e733ac959b79c8b7c614cb93afbf9  docs/ПЛАН-ИНТЕГРАЦИИ-svet-po-video.md
 851802b11b9d5ad6ba5eae6b9dc892a4  hacs.json
 eb7e2e7114e80d276d0850b6b54b972d  LICENSE
@@ -32,4 +32,4 @@ eb7e2e7114e80d276d0850b6b54b972d  LICENSE
 02f756f58d67ba83a6d0f5082b5494ab  tools/publish-github.py
 dd0fed612a22d8394a3879dfc5432ee7  tools/sync-github.py
 3f60ab7a198bd14bf3fffca1e67cab6e  tools/test_motion.py
-cbe071a9877b3726d53c43a03b088a06  versions.md
+b76fb32e75ad36ff8a782b9adb6bb8c0  versions.md
