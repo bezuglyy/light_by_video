@@ -11,6 +11,7 @@ from typing import Any
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import callback
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -18,12 +19,15 @@ from homeassistant.util import dt as dt_util
 from .actions import ActionEngine
 from .const import (
     DOMAIN,
+    EVENT_ACTION_OFF,
+    EVENT_ACTION_ON,
     EVENT_BUS,
     EVENT_CAMERA_BACK,
     EVENT_CAMERA_LOST,
     EVENT_CLEARED,
     EVENT_DETECTED,
     EVENT_LIGHTING,
+    EVENT_SKIPPED,
     EVENT_TITLES,
     MAX_EVENT_LOG,
     ROLE_MOTION,
@@ -66,6 +70,7 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fail_streak = 0
         self._lost_emitted = False
         self._session: aiohttp.ClientSession | None = None
+        self._unsub_bus = hass.bus.async_listen(EVENT_BUS, self._on_action_event)
         self._objects: dict[str, Any] = {}
         self.event_log: deque[dict[str, Any]] = deque(maxlen=MAX_EVENT_LOG)
         self.started_at = time.time()
@@ -91,7 +96,22 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if hasattr(self.source, "async_start"):
             await self.source.async_start()
 
+    @callback
+    def _on_action_event(self, event) -> None:
+        """Запоминать действия движка в журнал координатора (для датчиков и панели)."""
+        data = dict(event.data or {})
+        if data.get("entry_id") != self.entry.entry_id:
+            return
+        if data.get("event") not in (EVENT_ACTION_ON, EVENT_ACTION_OFF, EVENT_SKIPPED):
+            return
+        data.setdefault("ts", dt_util.utcnow().isoformat())
+        self.event_log.append(data)
+        self._last_event = data
+
     async def async_shutdown(self) -> None:
+        if self._unsub_bus is not None:
+            self._unsub_bus()
+            self._unsub_bus = None
         if self._session is not None and not self._session.closed:
             await self._session.close()
         if self.source is not None and hasattr(self.source, "async_close"):
@@ -339,6 +359,8 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "zones": zones_out,
             "actions": self.actions.active_info(),
             "zone_actions": {z["id"]: self.actions.zone_status(z) for z in self.settings.zones},
+            "last_action": self._last_action(),
+            "next_event": self._next_event(),
             "objects": objects_info,
             "detector_mode": str(self.settings.detector.get("mode") or "frame"),
             "last_motion": self.last_motion_ts,
@@ -407,6 +429,30 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(str(err))
         base.update({"camera_ok": False, "state": "lost", "reason": f"источник недоступен: {err}"})
         return base
+
+    def _last_action(self) -> dict[str, Any] | None:
+        """Последнее действие/пропуск из журнала (для датчиков)."""
+        for entry in reversed(self.event_log):
+            if entry.get("event") in ("action_on", "action_off", "skipped", "detected"):
+                return entry
+        return None
+
+    def _next_event(self) -> dict[str, Any] | None:
+        """Ближайшее автоматическое выключение активного действия."""
+        best: tuple[float, dict[str, Any]] | None = None
+        for item in self.actions.active_info().values():
+            left = float(item.get("left_sec") or 0)
+            if left <= 0:
+                continue
+            if best is None or left < best[0]:
+                best = (left, item)
+        if best is None:
+            return None
+        return {
+            "in_sec": int(best[0]),
+            "entity": best[1].get("zone_id"),
+            "at": dt_util.utcnow().timestamp() + best[0],
+        }
 
     # ------------------------------------------------------------------ события
     async def _emit(self, event: str, payload: dict[str, Any]) -> None:
