@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "light_by_video"
 NAME = "Свет по видео"
 MANUFACTURER = "techlan.su"
-VERSION = "0.10.0"
+VERSION = "0.11.0"
 
 # --- ключи настроек (config entry data/options) ---
 CONF_CAMERA_ENTITY = "camera_entity"
@@ -192,29 +192,29 @@ DEFAULT_CALIBRATION: dict = {
 
 # --- расписания ---
 SCHEDULE_ACTIONS = ("on", "off")
-SCHEDULE_TRIGGERS = ("time", "range", "sunset", "sunrise")
+# расписание — это ПЕРИОД, в котором разрешены действия (движение включает свет)
+SCHEDULE_TRIGGERS = ("time", "sunset", "sunrise")
 SCHEDULE_TRIGGER_TITLES = {
     "time": "по времени",
-    "range": "диапазон времени",
-    "sunset": "по закату",
-    "sunrise": "по рассвету",
+    "sunset": "с заката до рассвета",
+    "sunrise": "с рассвета до заката",
 }
 MAX_SCHEDULES = 20
 DEFAULT_CATCHUP_MIN = 360  # 6 часов, как в «Времени света»
 DEFAULT_SCHEDULE: dict = {
     "id": "s1",
-    "name": "Расписание 1",
+    "name": "Ночной период",
     "enabled": True,
-    "time": "22:00",
     "trigger": "time",
+    "time_from": "19:00",
+    "time_to": "07:00",
     "offset_min": 0,
-    "time_from": "",
-    "time_to": "",
+    "offset_end_min": 0,
     "days": [0, 1, 2, 3, 4, 5, 6],
-    "action": "on",
-    "zone_id": "z1",
-    "seconds": 600,
-    "last_run": "",
+    "zone_id": "",  # пусто — все зоны
+    "seconds": 0,  # 0 — держать как задано в зоне
+    "last_start": "",
+    "last_end": "",
 }
 
 MAX_EVENT_LOG = 200
