@@ -58,6 +58,7 @@ class ActionEngine:
         self._manual_until: dict[str, float] = {}
         self._pending_off: list = []
         self._cooldown_until: dict[str, float] = {}
+        self.schedule_runner = None  # проставляется при старте записи (см. __init__.py)
 
     # ------------------------------------------------------------------ жизнь
     async def async_load(self) -> None:
@@ -173,7 +174,12 @@ class ActionEngine:
         return True, ""
 
     # ------------------------------------------------------------------ запуск
-    async def async_trigger(self, zone: dict[str, Any], context: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def async_trigger(
+        self,
+        zone: dict[str, Any],
+        context: dict[str, Any] | None = None,
+        respect_window: bool = True,
+    ) -> dict[str, Any]:
         """Движение в зоне: включить (если нужно) и/или продлить."""
         entity = (zone.get("target_entity") or "").strip()
         zone_id = zone.get("id")
@@ -182,11 +188,23 @@ class ActionEngine:
         if not entity:
             return {"ok": False, "reason": "не задано устройство"}
 
+        runner = self.schedule_runner
+        if respect_window and runner is not None:
+            allowed, why, _name = runner.is_allowed(str(zone_id))
+            if not allowed:
+                if runner.skip_allowed_log(f"gate:{zone_id}"):
+                    await self._async_event(
+                        EVENT_SKIPPED, {"zone": zone.get("name"), "reason": why, "entity": entity}
+                    )
+                return {"ok": False, "reason": why, "skipped": True}
+
+        hold_override = runner.hold_override(str(zone_id)) if runner is not None else 0
+
         if entity in self._active:
             # общий таймер на устройство: несколько зон продлевают один и тот же свет,
             # удержание берём максимальное, лимит max_on не отодвигаем
             item = self._active[entity]
-            hold = max(5, int(zone.get("hold_sec") or 300))
+            hold = max(5, int(hold_override or zone.get("hold_sec") or 300))
             item["until"] = max(float(item.get("until") or 0), now + hold)
             item["zone_id"] = zone_id
             zones = item.setdefault("zones", [])
@@ -212,7 +230,7 @@ class ActionEngine:
 
         state = self.hass.states.get(entity)
         was_on = bool(state and state.state in _ON_STATES)
-        hold = max(5, int(zone.get("hold_sec") or 300))
+        hold = max(5, int(hold_override or zone.get("hold_sec") or 300))
         max_on = max(hold, int(zone.get("max_on_sec") or 1800))
 
         if was_on and not zone.get("restore"):
