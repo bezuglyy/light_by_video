@@ -37,6 +37,8 @@ from .const import (
     MAX_INTERLOCKS,
     MAX_ON_MIN,
     MAX_ZONES,
+    ZONE_MAX_POINTS,
+    ZONE_MIN_POINTS,
     ROLE_MOTION,
     SUN_MODES,
     ZONE_ROLES,
@@ -140,6 +142,22 @@ def _parse_dt(value: str):
         return dt_util.as_utc(parsed) if parsed.tzinfo else parsed.replace(tzinfo=dt_util.UTC)
     except Exception:  # noqa: BLE001
         return None
+
+
+def _normalize_points(value: Any) -> list[list[float]] | None:
+    """Вершины многоугольника: список [x, y] в долях кадра (0..1). None — обычный прямоугольник."""
+    if not isinstance(value, list) or len(value) < ZONE_MIN_POINTS:
+        return None
+    points: list[list[float]] = []
+    for item in value[:ZONE_MAX_POINTS]:
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            try:
+                px = min(1.0, max(0.0, float(item[0])))
+                py = min(1.0, max(0.0, float(item[1])))
+            except (TypeError, ValueError):
+                continue
+            points.append([round(px, 4), round(py, 4)])
+    return points if len(points) >= ZONE_MIN_POINTS else None
 
 
 def _sun_mode(value: Any) -> str:
