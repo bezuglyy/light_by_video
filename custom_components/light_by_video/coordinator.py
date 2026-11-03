@@ -27,6 +27,7 @@ from .const import (
     EVENT_CLEARED,
     EVENT_DETECTED,
     EVENT_LIGHTING,
+    EVENT_SCHEDULE,
     EVENT_SKIPPED,
     EVENT_TITLES,
     MAX_EVENT_LOG,
@@ -103,7 +104,7 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data = dict(event.data or {})
         if data.get("entry_id") != self.entry.entry_id:
             return
-        if data.get("event") not in (EVENT_ACTION_ON, EVENT_ACTION_OFF, EVENT_SKIPPED):
+        if data.get("event") not in (EVENT_ACTION_ON, EVENT_ACTION_OFF, EVENT_SKIPPED, EVENT_SCHEDULE):
             return
         data.setdefault("ts", dt_util.utcnow().isoformat())
         self.event_log.append(data)
