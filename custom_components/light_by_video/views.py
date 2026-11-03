@@ -15,12 +15,15 @@ from .const import (
     CONF_DETECTOR,
     CONF_ENABLED,
     CONF_GO2RTC_BASE,
+    CONF_INTERLOCKS,
     CONF_MUTE_UNTIL,
     CONF_NOTIFY,
     CONF_SCAN_INTERVAL,
     CONF_SNAPSHOT_URL,
     CONF_SOURCE_PASS,
     CONF_SOURCE_USER,
+    CONF_SUN_ENTITY,
+    CONF_SUN_OFFSET,
     CONF_ZONES,
     DOMAIN,
     URL_EVENTS,
@@ -208,6 +211,9 @@ class LightByVideoSettingsView(HomeAssistantView):
                 CONF_SOURCE_USER,
                 CONF_SOURCE_PASS,
                 CONF_MUTE_UNTIL,
+                CONF_INTERLOCKS,
+                CONF_SUN_ENTITY,
+                CONF_SUN_OFFSET,
             )
             if key in body
         }
