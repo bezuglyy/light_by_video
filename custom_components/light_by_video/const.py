@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "light_by_video"
 NAME = "Свет по видео"
 MANUFACTURER = "techlan.su"
-VERSION = "0.3.1"
+VERSION = "0.4.0"
 
 # --- ключи настроек (config entry data/options) ---
 CONF_CAMERA_ENTITY = "camera_entity"
@@ -19,6 +19,9 @@ CONF_ZONES = "zones"
 CONF_ENABLED = "enabled"
 CONF_NOTIFY = "notify"
 CONF_MUTE_UNTIL = "mute_until"  # режим «не беспокоить» до указанного времени (ISO)
+CONF_INTERLOCKS = "interlocks"  # запреты по сенсорам
+CONF_SUN_ENTITY = "sun_entity"  # сенсор «темно» (по умолчанию sun.sun)
+CONF_SUN_OFFSET = "sun_offset_min"  # поправка к закату, минуты (минус — раньше)
 
 DEFAULT_GO2RTC_BASE = "http://127.0.0.1:1984"
 DEFAULT_SCAN_INTERVAL = 1.5
@@ -46,7 +49,10 @@ DEFAULT_DETECTOR: dict[str, float | int | str] = {
     "objects_cache_ms": 700,
     "objects_require_motion": True,  # объект засчитывается только вместе с движением в зоне
     "objects_only_on_motion": True,  # инференс только когда в кадре есть движение (экономия CPU)
-    "objects_idle_cache_ms": 3000,  # как долго держим прошлый результат без движения  # не чаще одного запроса к детектору
+    "objects_idle_cache_ms": 3000,  # как долго держим прошлый результат без движения
+    "objects_tiling": 1,  # 1 — весь кадр, 2 — 2×2 фрагмента, 3 — 3×3 (дальние объекты)
+    "objects_width": 0,  # ширина кадра для детектора (0 — как у источника)
+    "objects_min_h": 0.0,  # мин. высота объекта в долях кадра (отсечь мелочь)  # не чаще одного запроса к детектору
     "objects_timeout": 4.0,
     "gray_sat": 0.02,  # ниже — ч/б кадр
     "frame_min_mean": 15.0,  # ниже — кадр почти чёрный
@@ -111,6 +117,55 @@ EVENT_TITLES = {
     EVENT_CAMERA_LOST: "Источник кадра недоступен",
     EVENT_CAMERA_BACK: "Источник кадра снова доступен",
     EVENT_LIGHTING: "Смена освещения (не движение)",
+}
+
+# --- запреты по сенсорам ---
+INTERLOCK_OPS = {
+    "is_on": "включён / открыт",
+    "is_off": "выключен / закрыт",
+    "above": "больше",
+    "below": "меньше",
+    "equal": "равно",
+    "not_equal": "не равно",
+}
+INTERLOCK_MODES = {"block": "запрещать", "warn": "только предупреждать"}
+
+# состояния, которые считаем «включено» / «выключено» в запретах
+ISH_ON_STATES = {
+    "on", "true", "1", "yes", "home", "open", "opened", "включено", "открыто", "тревога",
+}
+IS_OFF_STATES = {
+    "off", "false", "0", "no", "not_home", "closed", "выключено", "закрыто", "норма",
+}
+MAX_INTERLOCKS = 20
+
+# предустановки детектора (кнопки в панели)
+DETECTOR_PRESETS: dict[str, dict] = {
+    "street": {
+        "mode": "objects",
+        "objects_conf": 0.25,
+        "objects_tiling": 2,
+        "objects_require_motion": True,
+        "objects_only_on_motion": True,
+        "min_ratio": 0.012,
+        "diff_t": 24.0,
+    },
+    "yard": {
+        "mode": "objects",
+        "objects_conf": 0.3,
+        "objects_tiling": 1,
+        "objects_require_motion": True,
+        "objects_only_on_motion": True,
+        "min_ratio": 0.015,
+        "diff_t": 26.0,
+    },
+    "room": {
+        "mode": "frame",
+        "objects_tiling": 1,
+        "min_ratio": 0.02,
+        "diff_t": 28.0,
+        "blur": 1,
+    },
 }
 
 MAX_EVENT_LOG = 200
