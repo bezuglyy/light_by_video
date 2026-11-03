@@ -64,6 +64,9 @@
       },
       "next_schedule": {
         "name": "Next schedule"
+      },
+      "stuck": {
+        "name": "On without motion"
       }
     },
     "switch": {
