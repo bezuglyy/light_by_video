@@ -14,6 +14,7 @@ from .const import (
     CONF_DETECTOR,
     CONF_ENABLED,
     CONF_GO2RTC_BASE,
+    CONF_MUTE_UNTIL,
     CONF_NOTIFY,
     CONF_SCAN_INTERVAL,
     CONF_SNAPSHOT_URL,
@@ -94,6 +95,22 @@ def normalize_zone(zone: dict[str, Any], index: int) -> dict[str, Any]:
     }
 
 
+def _parse_dt(value: str):
+    """ISO-строка -> aware datetime (или None)."""
+    text = (value or "").strip()
+    if not text:
+        return None
+    try:
+        from homeassistant.util import dt as dt_util
+
+        parsed = dt_util.parse_datetime(text)
+        if parsed is None:
+            return None
+        return dt_util.as_utc(parsed) if parsed.tzinfo else parsed.replace(tzinfo=dt_util.UTC)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _sun_mode(value: Any) -> str:
     """Условие по солнцу: any | night | day."""
     text = str(value or "").strip().lower()
@@ -122,11 +139,20 @@ def normalize_detector(detector: dict[str, Any] | None) -> dict[str, Any]:
         if key in ("mode", "objects_url", "objects_classes"):
             out[key] = str(value)
             continue
-        if key == "objects_require_motion":
+        if key in ("objects_require_motion", "objects_only_on_motion"):
             out[key] = bool(value)
             continue
         try:
-            if key in ("width", "blur", "min_px", "confirm_frames", "confirm_window", "quiet_frames", "objects_cache_ms"):
+            if key in (
+                "width",
+                "blur",
+                "min_px",
+                "confirm_frames",
+                "confirm_window",
+                "quiet_frames",
+                "objects_cache_ms",
+                "objects_idle_cache_ms",
+            ):
                 out[key] = int(value)
             else:
                 out[key] = float(value)
@@ -167,6 +193,8 @@ class Settings:
         self.source_pass = str(merged.get(CONF_SOURCE_PASS) or "")
         self.scan_interval = _num(merged.get(CONF_SCAN_INTERVAL), DEFAULT_SCAN_INTERVAL, 1.0, 30.0)
         self.enabled = bool(merged.get(CONF_ENABLED, True))
+        self.mute_until_raw = str(merged.get(CONF_MUTE_UNTIL) or "")
+        self.mute_until = _parse_dt(self.mute_until_raw)
         self.detector = normalize_detector(merged.get(CONF_DETECTOR))
 
         zones = merged.get(CONF_ZONES)
@@ -206,6 +234,8 @@ class Settings:
                 options[key] = str(value or "")
             elif key == CONF_ENABLED:
                 options[key] = bool(value)
+            elif key == CONF_MUTE_UNTIL:
+                options[key] = str(value or "")
             elif key == CONF_SCAN_INTERVAL:
                 options[key] = _num(value, DEFAULT_SCAN_INTERVAL, 1.0, 30.0)
         self.hass.config_entries.async_update_entry(self.entry, options=options)
@@ -220,6 +250,7 @@ class Settings:
             "source_pass": self.source_pass,
             "scan_interval": self.scan_interval,
             "enabled": self.enabled,
+            "mute_until": self.mute_until_raw,
             "detector": self.detector,
             "zones": copy.deepcopy(self.zones),
             "notify": dict(self.notify),
