@@ -69,6 +69,13 @@ def normalize_zone(zone: dict[str, Any], index: int) -> dict[str, Any]:
     if y + h > 1.0:
         h = max(0.005, 1.0 - y)
 
+    points = _normalize_points(zone.get("points"))
+    if points:
+        xs = [pt[0] for pt in points]
+        ys = [pt[1] for pt in points]
+        x, y = min(xs), min(ys)
+        w, h = max(0.005, max(xs) - x), max(0.005, max(ys) - y)
+
     hold = int(_num(zone.get("hold_sec"), 300, HOLD_MIN, HOLD_MAX))
     max_on = int(_num(zone.get("max_on_sec"), 1800, hold, 86400))
     cooldown = int(_num(zone.get("cooldown_sec"), 0, 0, 86400))
@@ -85,6 +92,7 @@ def normalize_zone(zone: dict[str, Any], index: int) -> dict[str, Any]:
         "y": round(y, 4),
         "w": round(w, 4),
         "h": round(h, 4),
+        "points": points,
         "enabled": bool(zone.get("enabled", True)),
         "sensitivity": round(_num(zone.get("sensitivity"), 1.0, 0.2, 5.0), 2),
         "target_entity": str(zone.get("target_entity") or "").strip(),
