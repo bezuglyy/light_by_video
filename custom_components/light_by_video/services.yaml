@@ -38,3 +38,15 @@ reset_cooldown:
     zone_id:
       name: Зона
       selector: {text: {}}
+run_schedule:
+  name: Запустить расписание
+  description: Выполнить расписание немедленно (как если бы наступило его время).
+  fields:
+    entry_id:
+      name: Запись интеграции
+      selector: {text: {}}
+    schedule_id:
+      name: Расписание
+      description: Идентификатор расписания из вкладки «Расписания».
+      example: s1
+      selector: {text: {}}
