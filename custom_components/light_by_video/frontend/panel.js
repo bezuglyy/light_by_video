@@ -679,11 +679,9 @@ class LightByVideoPanel extends HTMLElement {
       "Максимум, мин": "Жёсткий лимит непрерывного горения, даже при постоянном движении",
       "Не гасить, если горело": "Если устройство горело до срабатывания — не выключать его по таймеру",
       "Пауза между вкл., мин": "Не включать повторно N минут после выключения (защита от мигания)",
-      "Освещённость": "Условие по свету: любая / только в темноте / только днём / по датчику освещённости",
+      "Освещённость": "Тёмное время задаётся периодом «с заката до рассвета»; здесь — только ограничение по датчику освещённости",
       "Датчик освещённости": "Сущность с освещённостью в люксах (только для режима «по датчику»)",
       "Порог, lx": "Включать, пока освещённость ниже этого значения",
-      "Сенсор «темно»": "sun.sun или свой датчик: состояние «on» = темно",
-      "Поправка к закату, мин": "Минус — раньше (за 20 мин до заката), плюс — позже",
       "Не беспокоить": "Временно запретить действия (камера и журнал продолжают работать)",
       "Детектор": "Разность кадров (без зависимостей) или объекты (человек/машина)",
       "Сервис объектов": "HTTP-адрес ONNX-детектора (ARM:8099)",
@@ -1005,19 +1003,18 @@ class LightByVideoPanel extends HTMLElement {
     this._pane.append(st);
 
     // --- расписание/солнце
-    const sunEntity = this._state.settings.sun_entity || "sun.sun";
-    const sunState = this._hass.states[sunEntity];
+    const sunState = this._hass.states["sun.sun"];
     const sunAttrs = sunState?.attributes || {};
-    const isNight = sunEntity === "sun.sun" ? sunState?.state === "below_horizon" : String(sunState?.state || "").toLowerCase() === "on";
+    const isNight = sunState?.state === "below_horizon";
     const win = this._state.window || null;
     const winActive = !!(win && win.active);
-    const lightText = { any: "любая", dark: "только в темноте", light: "только днём", lux: `по датчику (${zone.lux_below || 0} lx)` }[zone.light_mode || "any"] || "любая";
+    const lightText = (zone.light_mode || "any") === "lux" ? `по датчику (${zone.lux_below || 0} lx)` : "нет ограничения";
     const sch = h("div");
     sch.style.cssText = "border:1px solid var(--divider-color,#354354);border-radius:8px;padding:6px 8px;margin-bottom:8px";
     sch.append(
       h("div", "muted", "Условия и период"),
       h("div", "", `сейчас: ${isNight ? "ночь" : "день"} · закат ${fmtClock(sunAttrs.next_setting)} · восход ${fmtClock(sunAttrs.next_rising)}`),
-      h("div", "muted", `освещённость: ${lightText} · поправка к закату: ${this._state.settings.sun_offset_min || 0} мин`),
+      h("div", "muted", `ограничение по свету: ${lightText}`),
       h("div", "muted", winActive
         ? `период активен${win.until ? " до " + fmtClock(win.until) : ""}${win.schedule ? " (" + win.schedule + ")" : ""}`
         : ((win && (win.items || []).length) ? "вне периода работы — действия не выполняются" : "периоды не заданы — действия круглосуточно"))
@@ -1039,23 +1036,6 @@ class LightByVideoPanel extends HTMLElement {
     if (muted && muted > new Date()) {
       this._pane.append(h("div", "muted", "Действует до " + muted.toLocaleString("ru-RU")));
     }
-
-    const sunOptions = [["sun.sun", "sun.sun (встроенный, закат/восход)"]];
-    for (const eid of Object.keys(this._hass.states)) {
-      if (eid.startsWith("binary_sensor.") && /dark|night|sun|light|темен|ночь|освещ/i.test(eid)) {
-        sunOptions.push([eid, (this._hass.states[eid].attributes?.friendly_name || eid) + " · " + eid]);
-      }
-    }
-    this._pane.append(
-      this._row(
-        "Сенсор «темно»",
-        this._selectEl(sunOptions, this._state.settings.sun_entity || "sun.sun", (v) => this._saveGlobal({ sun_entity: v }))
-      ),
-      this._row(
-        "Поправка к закату, мин",
-        this._number(this._state.settings.sun_offset_min || 0, (v) => this._saveGlobal({ sun_offset_min: Number(v) }), { min: -180, max: 180, step: 5 })
-      )
-    );
 
     this._pane.append(h("div", "muted", "Зона: " + zone.name));
 
@@ -1089,11 +1069,11 @@ class LightByVideoPanel extends HTMLElement {
       this._row(
         "Освещённость",
         this._selectEl(
-          [["any", "любая"], ["dark", "только в темноте"], ["light", "только днём"], ["lux", "по датчику освещённости"]],
+          [["any", "нет ограничения"], ["lux", "по датчику освещённости"]],
           zone.light_mode || "any",
           (v) => this._saveZone(zone.id, { light_mode: v })
         ),
-        "Условие по свету. Время и дни недели задаются в периодах ниже."
+        "Тёмное время задаётся периодом «с заката до рассвета» (ниже). Здесь — только ограничение по датчику освещённости."
       )
     );
 
@@ -1678,7 +1658,7 @@ class LightByVideoPanel extends HTMLElement {
         "Максимум — жёсткий лимит непрерывного горения (даже при постоянном движении).",
         "Пауза между включениями — защита от частого мигания (после выключения N минут не включать).",
         "Продлевать — новое движение во время удержания сбрасывает таймер.",
-        "Освещённость — условие по свету: любая, только в темноте, только днём или по датчику освещённости (порог в люксах). Время и дни — это периоды работы ниже, отдельно их задавать не нужно.",
+        "Освещённость — только ограничение по датчику освещённости (порог в люксах). «Только в темноте» делается периодом «с заката до рассвета», «только днём» — периодом «с рассвета до заката»: один механизм вместо двух.",
         "После каждой команды интеграция через 5 секунд проверяет фактическое состояние устройства, при расхождении повторяет (до 3 раз).",
         ["«Не беспокоить» и кнопка «Выключить сейчас» — ручное управление; пауза снимается кнопкой «Сбросить паузу»."],
       ]),
