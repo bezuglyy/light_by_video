@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "light_by_video"
 NAME = "Свет по видео"
 MANUFACTURER = "techlan.su"
-VERSION = "0.9.1"
+VERSION = "0.10.0"
 
 # --- ключи настроек (config entry data/options) ---
 CONF_CAMERA_ENTITY = "camera_entity"
@@ -192,6 +192,13 @@ DEFAULT_CALIBRATION: dict = {
 
 # --- расписания ---
 SCHEDULE_ACTIONS = ("on", "off")
+SCHEDULE_TRIGGERS = ("time", "range", "sunset", "sunrise")
+SCHEDULE_TRIGGER_TITLES = {
+    "time": "по времени",
+    "range": "диапазон времени",
+    "sunset": "по закату",
+    "sunrise": "по рассвету",
+}
 MAX_SCHEDULES = 20
 DEFAULT_CATCHUP_MIN = 360  # 6 часов, как в «Времени света»
 DEFAULT_SCHEDULE: dict = {
@@ -199,6 +206,10 @@ DEFAULT_SCHEDULE: dict = {
     "name": "Расписание 1",
     "enabled": True,
     "time": "22:00",
+    "trigger": "time",
+    "offset_min": 0,
+    "time_from": "",
+    "time_to": "",
     "days": [0, 1, 2, 3, 4, 5, 6],
     "action": "on",
     "zone_id": "z1",
