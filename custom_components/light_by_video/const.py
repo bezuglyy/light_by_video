@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "light_by_video"
 NAME = "Свет по видео"
 MANUFACTURER = "techlan.su"
-VERSION = "0.1.0"
+VERSION = "0.3.0"
 
 # --- ключи настроек (config entry data/options) ---
 CONF_CAMERA_ENTITY = "camera_entity"
@@ -18,6 +18,7 @@ CONF_DETECTOR = "detector"
 CONF_ZONES = "zones"
 CONF_ENABLED = "enabled"
 CONF_NOTIFY = "notify"
+CONF_MUTE_UNTIL = "mute_until"  # режим «не беспокоить» до указанного времени (ISO)
 
 DEFAULT_GO2RTC_BASE = "http://127.0.0.1:1984"
 DEFAULT_SCAN_INTERVAL = 1.5
@@ -43,7 +44,9 @@ DEFAULT_DETECTOR: dict[str, float | int | str] = {
     "objects_conf": 0.35,  # порог уверенности детектора
     "objects_classes": "0,1,2,3,5,7",  # COCO: person, bicycle, car, motorcycle, bus, truck
     "objects_cache_ms": 700,
-    "objects_require_motion": True,  # объект засчитывается только вместе с движением в зоне  # не чаще одного запроса к детектору
+    "objects_require_motion": True,  # объект засчитывается только вместе с движением в зоне
+    "objects_only_on_motion": True,  # инференс только когда в кадре есть движение (экономия CPU)
+    "objects_idle_cache_ms": 3000,  # как долго держим прошлый результат без движения  # не чаще одного запроса к детектору
     "objects_timeout": 4.0,
     "gray_sat": 0.02,  # ниже — ч/б кадр
     "frame_min_mean": 15.0,  # ниже — кадр почти чёрный
