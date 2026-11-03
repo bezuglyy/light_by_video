@@ -1,0 +1,40 @@
+trigger:
+  name: Включить по зоне
+  description: Включить устройство зоны вручную (с учётом условий и запретов).
+  fields:
+    entry_id:
+      name: Запись интеграции
+      description: Если не указана — первая.
+      example: 01M6FWPTKCG2XG7V5M70FVTT8Z
+      selector: {text: {}}
+    zone_id:
+      name: Зона
+      description: Идентификатор зоны (например, z1). Если не указан — первая зона движения.
+      example: z1
+      selector: {text: {}}
+    seconds:
+      name: Держать, секунд
+      description: Переопределить время удержания для этого вызова.
+      example: 600
+      selector: {number: {min: 5, max: 86400, unit_of_measurement: с, mode: box}}
+stop:
+  name: Выключить
+  description: Выключить устройство, включённое интеграцией (все или указанное).
+  fields:
+    entry_id:
+      name: Запись интеграции
+      selector: {text: {}}
+    entity:
+      name: Устройство
+      description: Если не указано — все активные действия.
+      selector: {entity: {domain: [switch, light, fan, input_boolean]}}
+reset_cooldown:
+  name: Сбросить паузу
+  description: Снять паузу между включениями (для зоны или всех).
+  fields:
+    entry_id:
+      name: Запись интеграции
+      selector: {text: {}}
+    zone_id:
+      name: Зона
+      selector: {text: {}}
