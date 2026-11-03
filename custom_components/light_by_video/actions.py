@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
@@ -142,35 +142,29 @@ class ActionEngine:
         if state.state in _NO_STATE:
             return False, f"устройство {entity} недоступно"
 
-        days = zone.get("days") or []
-        now = dt_util.now()
-        if days and now.weekday() not in days:
-            return False, "не тот день недели"
-        if not _in_window(now, zone.get("time_from"), zone.get("time_to")):
-            return False, "вне окна времени"
-
-        sun_mode = str(zone.get("sun") or "any")
-        if sun_mode in ("night", "day"):
+        light_mode = str(zone.get("light_mode") or "any")
+        if light_mode in ("dark", "light"):
             night = _is_night(self.hass, self.settings)
-            if sun_mode == "night" and not night:
-                return False, "до заката (светло)"
-            if sun_mode == "day" and night:
-                return False, "после заката (темно)"
+            if light_mode == "dark" and not night:
+                return False, "по условию — только в темноте (сейчас светло)"
+            if light_mode == "light" and night:
+                return False, "по условию — только днём (сейчас темно)"
 
         blocked, reason = _interlocks_block(self.hass, self.settings, zone)
         if blocked:
             return False, reason
 
-        lux_sensor = (zone.get("lux_sensor") or "").strip()
-        lux_below = float(zone.get("lux_below") or 0)
-        if lux_sensor and lux_below > 0:
-            lux_state = self.hass.states.get(lux_sensor)
-            try:
-                lux = float(lux_state.state) if lux_state else None
-            except (TypeError, ValueError):
-                lux = None
-            if lux is not None and lux >= lux_below:
-                return False, f"светло ({lux:.0f} lx ≥ {lux_below:.0f})"
+        if light_mode == "lux":
+            lux_sensor = (zone.get("lux_sensor") or "").strip()
+            lux_below = float(zone.get("lux_below") or 0)
+            if lux_sensor and lux_below > 0:
+                lux_state = self.hass.states.get(lux_sensor)
+                try:
+                    lux = float(lux_state.state) if lux_state else None
+                except (TypeError, ValueError):
+                    lux = None
+                if lux is not None and lux >= lux_below:
+                    return False, f"светло ({lux:.0f} lx ≥ {lux_below:.0f})"
         return True, ""
 
     # ------------------------------------------------------------------ запуск
@@ -478,25 +472,6 @@ def _text(entry: dict[str, Any]) -> str:
         if entry.get(key):
             parts.append(str(entry[key]))
     return " · ".join(parts)
-
-
-def _in_window(now: datetime, start: Any, end: Any) -> bool:
-    start = str(start or "").strip()
-    end = str(end or "").strip()
-    if not start or not end:
-        return True
-    try:
-        sh, sm = (int(x) for x in start.split(":")[:2])
-        eh, em = (int(x) for x in end.split(":")[:2])
-    except (ValueError, AttributeError):
-        return True
-    minutes = now.hour * 60 + now.minute
-    start_m, end_m = sh * 60 + sm, eh * 60 + em
-    if start_m == end_m:
-        return True
-    if start_m < end_m:
-        return start_m <= minutes < end_m
-    return minutes >= start_m or minutes < end_m
 
 
 def _is_night(hass, settings) -> bool:
