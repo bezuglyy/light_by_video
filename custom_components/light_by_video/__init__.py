@@ -51,12 +51,81 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     store[f"actions:{entry.entry_id}"] = actions
 
     await _async_register_http(hass)
+    await _async_register_services(hass)
     await async_register_panel(hass)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     _LOGGER.info("light_by_video: интеграция запущена (%s)", entry.title)
     return True
+
+
+def _pick_coordinator(hass: HomeAssistant, entry_id: str | None):
+    store = hass.data.get(DOMAIN, {})
+    if entry_id and isinstance(store.get(entry_id), LightByVideoCoordinator):
+        return store[entry_id]
+    return next((v for v in store.values() if isinstance(v, LightByVideoCoordinator)), None)
+
+
+async def _async_register_services(hass: HomeAssistant) -> None:
+    """Сервисы интеграции: trigger / stop / reset_cooldown."""
+    if hass.services.has_service(DOMAIN, "trigger"):
+        return
+
+    import voluptuous as vol
+    from homeassistant.helpers import config_validation as cv
+
+    schema_trigger = vol.Schema(
+        {
+            vol.Optional("entry_id"): cv.string,
+            vol.Optional("zone_id"): cv.string,
+            vol.Optional("seconds"): vol.All(vol.Coerce(int), vol.Range(min=5, max=86400)),
+        }
+    )
+    schema_stop = vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("entity"): cv.string})
+    schema_reset = vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("zone_id"): cv.string})
+
+    async def _trigger(call) -> None:
+        coordinator = _pick_coordinator(hass, call.data.get("entry_id"))
+        if coordinator is None:
+            return
+        zone_id = call.data.get("zone_id")
+        zone = coordinator.settings.zone(str(zone_id)) if zone_id else next(
+            (z for z in coordinator.settings.zones if z.get("role") == "motion"), None
+        )
+        if zone is None:
+            return
+        if call.data.get("seconds"):
+            zone = {**zone, "hold_sec": int(call.data["seconds"])}
+        await coordinator.actions.async_trigger(zone, {"service": "trigger"})
+        await coordinator.async_request_refresh()
+
+    async def _stop(call) -> None:
+        coordinator = _pick_coordinator(hass, call.data.get("entry_id"))
+        if coordinator is None:
+            return
+        entity = call.data.get("entity")
+        if entity:
+            await coordinator.actions.async_stop(str(entity))
+        else:
+            await coordinator.actions.async_stop_all("сервис stop")
+        await coordinator.async_request_refresh()
+
+    async def _reset(call) -> None:
+        coordinator = _pick_coordinator(hass, call.data.get("entry_id"))
+        if coordinator is None:
+            return
+        zone_id = call.data.get("zone_id")
+        if zone_id:
+            coordinator.actions.reset_cooldown(str(zone_id))
+        else:
+            for zone in coordinator.settings.zones:
+                coordinator.actions.reset_cooldown(zone["id"])
+        await coordinator.async_request_refresh()
+
+    hass.services.async_register(DOMAIN, "trigger", _trigger, schema=schema_trigger)
+    hass.services.async_register(DOMAIN, "stop", _stop, schema=schema_stop)
+    hass.services.async_register(DOMAIN, "reset_cooldown", _reset, schema=schema_reset)
 
 
 async def _async_register_http(hass: HomeAssistant) -> None:
