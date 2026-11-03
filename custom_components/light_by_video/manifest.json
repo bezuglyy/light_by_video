@@ -1,13 +1,18 @@
 {
   "domain": "light_by_video",
   "name": "Свет по видео",
-  "codeowners": ["@bezuglyy"],
+  "codeowners": [
+    "@bezuglyy"
+  ],
   "config_flow": true,
-  "dependencies": ["http", "frontend"],
+  "dependencies": [
+    "http",
+    "frontend"
+  ],
   "documentation": "https://github.com/bezuglyy/light_by_video",
   "integration_type": "hub",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/bezuglyy/light_by_video/issues",
   "requirements": [],
-  "version": "0.1.0"
+  "version": "0.3.0"
 }
