@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Light by video",
+        "description": "Frame source: Home Assistant camera, go2rtc stream name, snapshot URL or rtsp://…",
+        "data": {
+          "camera_entity": "Home Assistant camera (optional)",
+          "snapshot_url": "go2rtc stream / snapshot URL / rtsp://…",
+          "go2rtc_base": "go2rtc base URL",
+          "source_user": "Source login",
+          "source_pass": "Source password",
+          "scan_interval": "Poll interval, s"
+        }
+      }
+    },
+    "error": {
+      "no_source": "Provide a camera or a stream address",
+      "cannot_connect": "No frame received — check address and credentials"
+    },
+    "abort": {"already_configured": "This source is already configured"}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Frame source",
+        "data": {
+          "camera_entity": "Home Assistant camera",
+          "snapshot_url": "Stream / URL / rtsp://…",
+          "go2rtc_base": "go2rtc base URL",
+          "source_user": "Source login",
+          "source_pass": "Source password",
+          "scan_interval": "Poll interval, s"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {"source": {"name": "Frame source"}},
+    "sensor": {
+      "last_motion": {"name": "Last motion"},
+      "motion_count": {"name": "Motions today"},
+      "frame_change": {"name": "Frame change"}
+    },
+    "switch": {"actions": {"name": "Actions"}}
+  }
+}
