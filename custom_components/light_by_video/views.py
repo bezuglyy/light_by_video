@@ -26,8 +26,6 @@ from .const import (
     CONF_SNAPSHOT_URL,
     CONF_SOURCE_PASS,
     CONF_SOURCE_USER,
-    CONF_SUN_ENTITY,
-    CONF_SUN_OFFSET,
     CONF_ZONES,
     DOMAIN,
     URL_EVENTS,
@@ -231,8 +229,6 @@ class LightByVideoSettingsView(HomeAssistantView):
                 CONF_STUCK,
     CONF_STUCK,
                 CONF_CATCHUP_MIN,
-                CONF_SUN_ENTITY,
-                CONF_SUN_OFFSET,
             )
             if key in body
         }
