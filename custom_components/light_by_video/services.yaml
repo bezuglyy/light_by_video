@@ -43,3 +43,10 @@ reset_cooldown:
     zone_id:
       name: Зона
       selector: {text: {}}
+check_stuck:
+  name: Проверить «горит без движения»
+  description: Сразу выполнить проверку — включено ли устройство, хотя движения нет.
+  fields:
+    entry_id:
+      name: Запись интеграции
+      selector: {text: {}}
