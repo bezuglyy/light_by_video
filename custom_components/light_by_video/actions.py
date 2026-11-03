@@ -55,6 +55,7 @@ class ActionEngine:
         self._handles: dict[str, list] = {}
         self._last_cmd: dict[str, float] = {}
         self._manual_until: dict[str, float] = {}
+        self._pending_off: list = []
         self._cooldown_until: dict[str, float] = {}
 
     # ------------------------------------------------------------------ жизнь
@@ -68,9 +69,10 @@ class ActionEngine:
             except (TypeError, ValueError):
                 continue
             if until <= now and max_until <= now:
-                # срок истёк, пока HA был выключен — гасим, если включали мы
+                # срок истёк, пока HA был выключен — гасим, если включали мы.
+                # Делаем это с задержкой: при старте сущности устройства могут быть ещё не загружены.
                 if not item.get("was_on"):
-                    await self._async_set(entity, False, reason="истёк таймер (после перезапуска)")
+                    self._schedule_off(entity, 30, 3)
                 continue
             self._active[entity] = {
                 "zone_id": item.get("zone_id"),
@@ -84,7 +86,30 @@ class ActionEngine:
         if self._active:
             _LOGGER.info("light_by_video: восстановлено активных действий: %s", len(self._active))
 
+    def _schedule_off(self, entity: str, delay: int, attempts: int) -> None:
+        """Выключить устройство с повторами (после перезапуска HA сущности могут быть ещё не готовы)."""
+
+        @callback
+        def _fire(_now):
+            self.hass.async_create_task(self._async_off_with_retry(entity, attempts))
+
+        self._pending_off.append(async_call_later(self.hass, delay, _fire))
+
+    async def _async_off_with_retry(self, entity: str, attempts: int) -> None:
+        state = self.hass.states.get(entity)
+        if state is not None and state.state not in _ON_STATES:
+            return
+        ok = await self._async_set(entity, False, reason="истёк таймер (после перезапуска)")
+        if not ok and attempts > 1:
+            self._schedule_off(entity, 30, attempts - 1)
+
     async def async_unload(self) -> None:
+        for cancel in self._pending_off:
+            try:
+                cancel()
+            except Exception:  # noqa: BLE001
+                pass
+        self._pending_off.clear()
         for handles in self._handles.values():
             for cancel in handles:
                 try:
