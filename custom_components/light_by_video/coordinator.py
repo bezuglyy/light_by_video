@@ -338,6 +338,7 @@ class LightByVideoCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "reason": result.get("reason", ""),
             "zones": zones_out,
             "actions": self.actions.active_info(),
+            "zone_actions": {z["id"]: self.actions.zone_status(z) for z in self.settings.zones},
             "objects": objects_info,
             "detector_mode": str(self.settings.detector.get("mode") or "frame"),
             "last_motion": self.last_motion_ts,
