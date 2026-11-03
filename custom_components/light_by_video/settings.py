@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 from .const import (
     CONF_CALIBRATION,
     CONF_CAMERA_ENTITY,
+    CONF_CATCHUP_MIN,
     CONF_DETECTOR,
     CONF_ENABLED,
     CONF_GO2RTC_BASE,
@@ -19,6 +20,7 @@ from .const import (
     CONF_MUTE_UNTIL,
     CONF_NOTIFY,
     CONF_SCAN_INTERVAL,
+    CONF_SCHEDULES,
     CONF_SNAPSHOT_URL,
     CONF_SOURCE_PASS,
     CONF_SUN_ENTITY,
@@ -27,6 +29,8 @@ from .const import (
     CONF_ZONES,
     DAYS_ALL,
     DEFAULT_CALIBRATION,
+    DEFAULT_CATCHUP_MIN,
+    DEFAULT_SCHEDULE,
     DEFAULT_DETECTOR,
     DEFAULT_GO2RTC_BASE,
     DEFAULT_SCAN_INTERVAL,
@@ -37,6 +41,8 @@ from .const import (
     INTERLOCK_MODES,
     INTERLOCK_OPS,
     MAX_INTERLOCKS,
+    MAX_SCHEDULES,
+    SCHEDULE_ACTIONS,
     MAX_ON_MIN,
     MAX_ZONES,
     ZONE_MAX_POINTS,
@@ -110,6 +116,33 @@ def normalize_zone(zone: dict[str, Any], index: int) -> dict[str, Any]:
         "time_to": _hhmm(zone.get("time_to")),
         "days": days or list(DAYS_ALL),
         "entity": bool(zone.get("entity", True)),
+    }
+
+
+def normalize_schedule(item: dict[str, Any], index: int) -> dict[str, Any]:
+    """Расписание принудительного включения/выключения."""
+    time_text = _hhmm(item.get("time")) or "22:00"
+    days = item.get("days")
+    if not isinstance(days, list) or not days:
+        days = list(DAYS_ALL)
+    days = sorted({int(d) for d in days if str(d).lstrip("-").isdigit() and 0 <= int(d) <= 6}) or list(DAYS_ALL)
+    action = str(item.get("action") or "on")
+    if action not in SCHEDULE_ACTIONS:
+        action = "on"
+    try:
+        seconds = max(60, min(86400, int(item.get("seconds") or 600)))
+    except (TypeError, ValueError):
+        seconds = 600
+    return {
+        "id": str(item.get("id") or f"s{index}"),
+        "name": str(item.get("name") or f"Расписание {index}")[:60],
+        "enabled": bool(item.get("enabled", True)),
+        "time": time_text,
+        "days": days,
+        "action": action,
+        "zone_id": str(item.get("zone_id") or ""),
+        "seconds": seconds,
+        "last_run": str(item.get("last_run") or ""),
     }
 
 
@@ -305,6 +338,16 @@ class Settings:
             normalize_interlock(r, i + 1) for i, r in enumerate(rules or []) if isinstance(r, dict)
         ][:MAX_INTERLOCKS]
         self.calibration = normalize_calibration(merged.get(CONF_CALIBRATION))
+        raw_schedules = merged.get(CONF_SCHEDULES)
+        self.schedules = [
+            normalize_schedule(item, i + 1)
+            for i, item in enumerate(raw_schedules or [])
+            if isinstance(item, dict)
+        ][:MAX_SCHEDULES]
+        try:
+            self.catchup_min = max(0, min(1440, int(merged.get(CONF_CATCHUP_MIN) or DEFAULT_CATCHUP_MIN)))
+        except (TypeError, ValueError):
+            self.catchup_min = DEFAULT_CATCHUP_MIN
         self.mute_until_raw = str(merged.get(CONF_MUTE_UNTIL) or "")
         self.mute_until = _parse_dt(self.mute_until_raw)
         self.detector = normalize_detector(merged.get(CONF_DETECTOR))
@@ -348,6 +391,15 @@ class Settings:
                 options[key] = bool(value)
             elif key == CONF_MUTE_UNTIL:
                 options[key] = str(value or "")
+            elif key == CONF_SCHEDULES and isinstance(value, list):
+                options[CONF_SCHEDULES] = [
+                    normalize_schedule(item, i + 1) for i, item in enumerate(value) if isinstance(item, dict)
+                ][:MAX_SCHEDULES]
+            elif key == CONF_CATCHUP_MIN:
+                try:
+                    options[key] = max(0, min(1440, int(value)))
+                except (TypeError, ValueError):
+                    options[key] = DEFAULT_CATCHUP_MIN
             elif key == CONF_CALIBRATION and isinstance(value, dict):
                 options[CONF_CALIBRATION] = normalize_calibration({**self.calibration, **value})
             elif key == CONF_INTERLOCKS and isinstance(value, list):
@@ -377,6 +429,8 @@ class Settings:
             "enabled": self.enabled,
             "mute_until": self.mute_until_raw,
             "calibration": self.calibration,
+            "schedules": copy.deepcopy(self.schedules),
+            "catchup_min": self.catchup_min,
             "sun_entity": self.sun_entity,
             "sun_offset_min": self.sun_offset_min,
             "interlocks": self.interlocks,
