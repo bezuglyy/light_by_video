@@ -1105,6 +1105,39 @@ class LightByVideoPanel extends HTMLElement {
     await this._saveDetector(presets[name] || {});
   }
 
+  _calibrationBlock(d) {
+    const cal = this._state.settings.calibration || {};
+    const wrap = h("div");
+    wrap.style.cssText = "border:1px solid var(--divider-color,#354354);border-radius:8px;padding:6px 8px;margin-bottom:8px";
+    const ppx = Number(cal.px_per_m || 0) * Number(cal.person_m || 1.7);
+    const modelPx = ppx * 640 / Number(cal.frame_w || 1920);
+    const minH = Math.max(0.005, Math.min(0.05, (ppx / Number(cal.frame_h || 1080)) * 0.25));
+    wrap.append(
+      h("div", "muted", "Калибровка масштаба"),
+      h("div", "muted", cal.object_name ? `${cal.object_name}: ${cal.object_px} px / ${cal.object_m} м` : "не заполнена"),
+      h("div", "muted", `номер: ${cal.plate_px || 0} px / ${cal.plate_m || 0.52} м · масштаб ${cal.px_per_m || 0} px/м`),
+      h("div", "muted", `человек ${cal.person_m || 1.7} м → ${ppx.toFixed(0)} px в кадре, ${modelPx.toFixed(0)} px в модели; рекомендация: tiling ${modelPx >= 40 ? 1 : 2}, min_h ${minH.toFixed(3)}`)
+    );
+    const apply = h("button", "act primary", "Применить по калибровке");
+    apply.style.marginTop = "6px";
+    apply.onclick = async () => {
+      try {
+        await this._api("/settings?refresh=1", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apply_calibration: true }),
+        });
+        await this._tick();
+        this._paintPane();
+        this._status("применено по калибровке");
+      } catch (err) {
+        this._status("не применено: " + err.message, true);
+      }
+    };
+    wrap.append(apply);
+    return wrap;
+  }
+
   _paneDetector() {
     const d = this._state.settings.detector;
     const obj = this._state.objects || {};
@@ -1121,6 +1154,8 @@ class LightByVideoPanel extends HTMLElement {
       presetRow.append(b);
     }
     this._pane.append(presetRow);
+
+    this._pane.append(this._calibrationBlock(d));
 
     this._pane.append(
       this._row("Детектор", modeSelect),
