@@ -39,16 +39,37 @@
   },
   "entity": {
     "binary_sensor": {
-      "source": {"name": "Источник кадра"},
-      "zone": {"name": "Движение"}
+      "source": {
+        "name": "Источник кадра"
+      },
+      "zone": {
+        "name": "Движение"
+      }
     },
     "sensor": {
-      "last_motion": {"name": "Последнее движение"},
-      "motion_count": {"name": "Движений за сутки"},
-      "frame_change": {"name": "Изменение кадра"}
+      "last_motion": {
+        "name": "Последнее движение"
+      },
+      "motion_count": {
+        "name": "Движений за сутки"
+      },
+      "frame_change": {
+        "name": "Изменение кадра"
+      },
+      "status": {
+        "name": "Статус"
+      },
+      "last_action": {
+        "name": "Последнее действие"
+      },
+      "next_event": {
+        "name": "Ближайшее выключение"
+      }
     },
     "switch": {
-      "actions": {"name": "Действия"}
+      "actions": {
+        "name": "Действия"
+      }
     }
   }
 }
