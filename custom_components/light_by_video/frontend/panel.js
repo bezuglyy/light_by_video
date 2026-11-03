@@ -272,7 +272,7 @@ class LightByVideoPanel extends HTMLElement {
   }
 
   _paintTabs() {
-    const tabs = [["zones", "Зоны"], ["action", "Действия"], ["detector", "Детектор"], ["interlocks", "Запреты"], ["schedules", "Расписания"], ["source", "Источник"], ["journal", "Журнал"], ["help", "Справка"]];
+    const tabs = [["zones", "Зоны"], ["action", "Действия и периоды"], ["detector", "Детектор"], ["interlocks", "Запреты"], ["source", "Источник"], ["journal", "Журнал"], ["help", "Справка"]];
     this._tabsEl.innerHTML = "";
     for (const [id, title] of tabs) {
       const b = h("button", this._tab === id ? "on" : "", title);
@@ -633,6 +633,7 @@ class LightByVideoPanel extends HTMLElement {
 
   _paintPane() {
     if (!this._pane) return;
+    if (this._tab === "schedules") this._tab = "action";
     this._pane.innerHTML = "";
     if (!this._state) {
       this._pane.append(h("div", "muted", "Загрузка…"));
@@ -640,10 +641,11 @@ class LightByVideoPanel extends HTMLElement {
     }
     if (!this._selected) this._selected = this._zone()?.id || null;
     if (this._tab === "zones") this._paneZones();
-    else if (this._tab === "action") this._paneAction();
-    else if (this._tab === "detector") this._paneDetector();
+    else if (this._tab === "action") {
+      this._paneAction();
+      this._paneSchedules();
+    } else if (this._tab === "detector") this._paneDetector();
     else if (this._tab === "interlocks") this._paneInterlocks();
-    else if (this._tab === "schedules") this._paneSchedules();
     else if (this._tab === "source") this._paneSource();
     else if (this._tab === "help") this._paneHelp();
     else this._paneJournal();
@@ -698,16 +700,15 @@ class LightByVideoPanel extends HTMLElement {
       "Камера HA": "Приоритетный источник: сущность camera.*",
       "RTSP / URL / go2rtc": "Если камера не выбрана: rtsp://, http:// или имя потока go2rtc",
       "Интервал проверки, с": "Как часто опрашивать кадр (1–30 с)",
-      "Название расписания": "Как правило называется в списке и журнале",
-      "Триггер запуска": "Чем определяется момент: точное время, диапазон (вкл в начале / выкл в конце), закат или рассвет ± смещение",
-      "Время срабатывания": "Локальное время; проверка каждые 20 секунд",
-      "Начало диапазона": "В это время включить (на «держать» секунд)",
-      "Конец диапазона": "В это время выключить; переход через полночь учитывается",
-      "Смещение, мин": "Сдвиг от заката/рассвета: −30 = за полчаса до, +15 = через 15 минут",
-      "Что делать": "Включить (на указанное время) или принудительно выключить",
-      "Держать, секунд": "Сколько держать после включения",
-      "Зона расписания": "Чьё устройство и условия использовать",
-      "Дни недели": "Дни, в которые расписание срабатывает",
+      "Название периода": "Видно в списке, журнале и датчиках",
+      "Триггер периода": "По часам (19:00 → 07:00), с заката до рассвета или с рассвета до заката",
+      "Начало периода": "С этого времени действия разрешены",
+      "Конец периода": "После этого времени действия не выполняются; если раньше начала — переход через полночь",
+      "Смещение начала, мин": "Сдвиг от заката/рассвета: −30 = за полчаса до",
+      "Смещение конца, мин": "Сдвиг конца периода относительно рассвета/заката",
+      "Держать при обнаружении, секунд": "0 — брать из зоны; иначе своё время удержания для этого периода",
+      "Зона периода": "Для какой зоны действует период; «все зоны» — для всех",
+      "Дни недели": "Дни, в которые период начинается",
       "Сущность ": "",
     };
     root.querySelectorAll(".row").forEach((row) => {
@@ -921,6 +922,10 @@ class LightByVideoPanel extends HTMLElement {
       this._pane.append(h("div", "muted", "Сначала создайте зону"));
       return;
     }
+    const head = h("div", "", "Действия по движению");
+    head.style.cssText = "margin:0 0 6px;font-weight:600;font-size:13px";
+    this._pane.append(head);
+
     const info = (this._state.actions || {})[zone.target_entity] || null;
     const za = (this._state.zone_actions || {})[zone.id] || {};
     const fmtDur = (sec) => {
@@ -1239,49 +1244,58 @@ class LightByVideoPanel extends HTMLElement {
   _schedTitle(trigger) {
     return {
       time: "по времени",
-      range: "диапазон времени",
-      sunset: "по закату",
-      sunrise: "по рассвету",
+      sunset: "с заката до рассвета",
+      sunrise: "с рассвета до заката",
     }[trigger] || "по времени";
   }
 
-  _schedSummary(sched, dayNames) {
-    const trig = sched.trigger || "time";
+  _schedSummary(sched, item, dayNames) {
+    const trig = this._schedTitle(sched.trigger || "time");
+    const win = item && item.start ? `${fmtClock(item.start)} → ${fmtClock(item.end)}` : "—";
+    const hold = Number(sched.seconds || 0) > 0
+      ? `держать ${Math.round(sched.seconds / 60)} мин`
+      : "держать как в зоне";
     const days = (sched.days || []).length === 7
       ? "каждый день"
       : (sched.days || []).map((d) => dayNames[d]).join(", ");
-    const holdMin = Math.round((sched.seconds || 600) / 60);
-    const doText = sched.action === "off" ? "выключить" : `включить на ${holdMin} мин`;
-    let when;
-    if (trig === "range") {
-      when = `с ${sched.time_from || "00:00"} до ${sched.time_to || "23:59"}: в начале включить на ${holdMin} мин, в конце выключить`;
-    } else if (trig === "sunset" || trig === "sunrise") {
-      const off = Number(sched.offset_min || 0);
-      const shift = off === 0 ? "ровно" : off > 0 ? `+${off} мин` : `${off} мин`;
-      when = `${trig === "sunset" ? "закат" : "рассвет"} ${shift} · ${doText}`;
-    } else {
-      when = `${sched.time || "22:00"} · ${doText}`;
-    }
-    return `${this._schedTitle(trig)}: ${when} · ${days}${sched.last_run ? " · последний запуск " + fmtClock(sched.last_run) : ""}`;
+    const state = item ? (item.active ? " · сейчас активен" : " · вне периода") : "";
+    return `${trig}: ${win} · ${hold} · ${days}${state}`;
   }
 
   _paneSchedules() {
+    const head = h("div", "", "Периоды работы (когда действия разрешены)");
+    head.style.cssText = "margin:16px 0 4px;padding-top:10px;border-top:1px solid var(--divider-color,#354354);font-weight:600;font-size:13px";
+    this._pane.append(head);
+
     const list = (this._state.settings.schedules || []).slice();
     const zones = this._state.settings.zones || [];
-    const zoneOptions = zones.map((z) => [z.id, z.name]);
+    const zoneOptions = [["", "все зоны"], ...zones.map((z) => [z.id, z.name])];
+    const zoneName = (id) => (zones.find((z) => z.id === id) || {}).name || "все зоны";
     const dayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-    const nxt = this._state.next_schedule || null;
+    const window = this._state.window || null;
+    const items = (window && window.items) || [];
+    const byId = {};
+    items.forEach((it) => { byId[it.id] = it; });
+    const nxt = (this._state.next_schedule) || null;
+    const activeNames = items.filter((i) => i.active).map((i) => i.name);
 
     this._pane.append(
-      h("div", "muted", "Принудительное включение или выключение по расписанию. Тип запуска: «по времени», «диапазон времени», «по закату» или «по рассвету» (со смещением в минутах). Пропущенное срабатывание догоняется после простоя HA (окно «догон», мин).")
+      h("div", "muted", "Период работы: внутри периода обнаружение человека включает устройство на «держать» (из зоны) и затем выключает. Вне периода действия не выполняются. Период может быть по времени (например 19:00 → 07:00), с заката до рассвета или с рассвета до заката.")
     );
+    if (activeNames.length) {
+      this._pane.append(h("div", "muted", `Сейчас период активен: ${activeNames.join(", ")}${window.until ? " — до " + fmtClock(window.until) : ""}`));
+    } else if (items.length) {
+      this._pane.append(h("div", "muted", "Сейчас вне периода работы — действия не выполняются."));
+    }
     if (nxt) {
       this._pane.append(
-        h("div", "muted", `Ближайшее: ${nxt.name || "—"} — ${this._schedTitle(nxt.trigger)} — ${fmtClock(nxt.at)} (${nxt.action === "off" ? "выключить" : "включить"})`)
+        h("div", "muted", `Ближайший период: ${nxt.name || "—"} — начнётся ${fmt(nxt.at)} (${this._schedTitle(nxt.trigger)})`)
       );
     }
 
-    if (!list.length) this._pane.append(h("div", "muted", "Расписаний пока нет"));
+    if (!list.length) {
+      this._pane.append(h("div", "muted", "Периодов пока нет — действия разрешены круглосуточно."));
+    }
 
     list.forEach((sched, idx) => {
       const card = h("div", "zitem");
@@ -1307,48 +1321,30 @@ class LightByVideoPanel extends HTMLElement {
       del.onclick = () => this._saveSchedules(list.filter((x) => x.id !== sched.id));
       head.append(en, name, del);
       card.append(head);
-      card.append(h("div", "muted", this._schedSummary(sched, dayNames)));
-      const row = h("div", "row");
-      row.style.margin = "4px 0 0";
-      const run = h("button", "act", "Запустить");
-      run.onclick = async () => {
-        try {
-          await this._hass.callService("light_by_video", "run_schedule", { schedule_id: sched.id });
-          await this._tick();
-          this._paintPane();
-        } catch (err) {
-          this._status("расписание не запущено: " + err.message, true);
-        }
-      };
-      row.append(run);
-      card.append(row);
+      card.append(h("div", "muted", this._schedSummary(sched, byId[sched.id], dayNames)));
+      card.append(h("div", "muted", `зона: ${zoneName(sched.zone_id)} · ${sched.trigger === "time" ? "по часам" : "по солнцу"}`));
       this._pane.append(card);
     });
 
     // ------- форма добавления (черновик сохраняется между перерисовками)
     const draft = this._schedDraft || (this._schedDraft = {
-      name: "Новое расписание",
+      name: "Ночной период",
       trigger: "time",
-      time: "22:00",
-      time_from: "18:00",
-      time_to: "23:00",
+      time_from: "19:00",
+      time_to: "07:00",
       offset_min: 0,
-      action: "on",
-      seconds: 600,
+      offset_end_min: 0,
+      seconds: 0,
       days: [0, 1, 2, 3, 4, 5, 6],
-      zone_id: zones[0]?.id || "z1",
+      zone_id: "",
     });
 
     const nameInput = this._text(draft.name, (v) => { draft.name = v; });
     const triggerSel = this._selectEl(
-      [["time", "по времени"], ["range", "диапазон времени"], ["sunset", "по закату"], ["sunrise", "по рассвету"]],
+      [["time", "по времени"], ["sunset", "с заката до рассвета"], ["sunrise", "с рассвета до заката"]],
       draft.trigger,
       (v) => { draft.trigger = v; this._paintPane(); }
     );
-    const timeInput = document.createElement("input");
-    timeInput.type = "time";
-    timeInput.value = draft.time;
-    timeInput.onchange = () => { draft.time = timeInput.value; };
     const fromInput = document.createElement("input");
     fromInput.type = "time";
     fromInput.value = draft.time_from;
@@ -1357,9 +1353,9 @@ class LightByVideoPanel extends HTMLElement {
     toInput.type = "time";
     toInput.value = draft.time_to;
     toInput.onchange = () => { draft.time_to = toInput.value; };
-    const offsetInput = this._number(draft.offset_min, (v) => { draft.offset_min = Number(v); }, { min: -180, max: 180, step: 5 });
-    const actionSel = this._selectEl([["on", "включить"], ["off", "выключить"]], draft.action, (v) => { draft.action = v; });
-    const secsInput = this._number(draft.seconds, (v) => { draft.seconds = Number(v); }, { min: 60, max: 86400, step: 60 });
+    const offIn = this._number(draft.offset_min, (v) => { draft.offset_min = Number(v); }, { min: -300, max: 300, step: 5 });
+    const offEndIn = this._number(draft.offset_end_min, (v) => { draft.offset_end_min = Number(v); }, { min: -300, max: 300, step: 5 });
+    const secsInput = this._number(draft.seconds, (v) => { draft.seconds = Number(v); }, { min: 0, max: 86400, step: 30 });
     const zoneSelEl = this._selectEl(zoneOptions, draft.zone_id, (v) => { draft.zone_id = v; });
 
     const daysRow = h("div", "row");
@@ -1379,47 +1375,44 @@ class LightByVideoPanel extends HTMLElement {
     }
     daysRow.append(daysWrap);
 
-    const rows = [this._row("Название расписания", nameInput, "Как правило называется в списке и журнале")];
-    rows.push(this._row("Триггер запуска", triggerSel, "Чем определяется момент: точное время, диапазон, закат или рассвет"));
+    const rows = [this._row("Название периода", nameInput, "Видно в списке, журнале и датчиках")];
+    rows.push(this._row("Триггер периода", triggerSel, "Чем определяются начало и конец периода"));
     if (draft.trigger === "time") {
-      rows.push(this._row("Время срабатывания", timeInput, "Локальное время; проверка каждые 20 секунд"));
-      rows.push(this._row("Что делать", actionSel, "Включить (на указанное время) или принудительно выключить"));
-    } else if (draft.trigger === "range") {
-      rows.push(this._row("Начало диапазона", fromInput, "В это время включить (на «держать» секунд)"));
-      rows.push(this._row("Конец диапазона", toInput, "В это время выключить; переход через полночь учитывается"));
+      rows.push(this._row("Начало периода", fromInput, "С этого времени действия разрешены"));
+      rows.push(this._row("Конец периода", toInput, "После этого времени действия не выполняются; если раньше начала — значит переход через полночь"));
     } else {
-      rows.push(this._row("Смещение, мин", offsetInput, "Сдвиг от заката/рассвета: −30 = за полчаса до, +15 = через 15 минут"));
-      rows.push(this._row("Что делать", actionSel, "Включить (на указанное время) или выключить"));
+      rows.push(this._row("Смещение начала, мин", offIn, "Сдвиг от заката/рассвета: −30 = за полчаса до"));
+      rows.push(this._row("Смещение конца, мин", offEndIn, "Сдвиг конца периода относительно рассвета/заката"));
     }
-    rows.push(this._row("Держать, секунд", secsInput, "Сколько держать после включения"));
-    rows.push(this._row("Зона расписания", zoneSelEl, "Чьё устройство и условия использовать"));
+    rows.push(this._row("Держать при обнаружении, секунд", secsInput, "0 — брать из зоны; иначе своё время для этого периода"));
+    rows.push(this._row("Зона периода", zoneSelEl, "Для какой зоны действует период; «все зоны» — для всех"));
     rows.push(daysRow);
 
-    this._pane.append(h("div", "muted", "Новое расписание"), ...rows);
+    this._pane.append(h("div", "muted", "Новый период"), ...rows);
 
-    const add = h("button", "act primary", "＋ Добавить расписание");
+    const add = h("button", "act primary", "＋ Добавить период");
     add.onclick = () => {
       const item = {
         id: "s" + Date.now(),
-        name: draft.name || "Новое расписание",
+        name: draft.name || "Период",
         enabled: true,
         trigger: draft.trigger,
-        time: draft.time,
         time_from: draft.time_from,
         time_to: draft.time_to,
         offset_min: draft.offset_min,
+        offset_end_min: draft.offset_end_min,
         days: (draft.days || []).length ? draft.days : [0, 1, 2, 3, 4, 5, 6],
-        action: draft.trigger === "range" ? "on" : draft.action,
         zone_id: draft.zone_id,
         seconds: draft.seconds,
-        last_run: "",
+        last_start: "",
+        last_end: "",
       };
       this._schedDraft = null;
       this._saveSchedules(list.concat([item]));
     };
     this._pane.append(add);
     this._pane.append(
-      h("div", "muted", "Догон пропущенного, мин: " + (this._state.settings.catchup_min ?? 360) + " (меняется в настройках записи)")
+      h("div", "muted", "Если периодов нет — ограничений нет (действия круглосуточно). Проверка периода — каждые 20 секунд; в конце периода устройство выключается принудительно.")
     );
   }
 
@@ -1615,9 +1608,11 @@ class LightByVideoPanel extends HTMLElement {
         "«Запрещать» — действие не выполняется (причина в журнале), «Предупреждать» — только запись в лог.",
         "Примеры: ворота открыты, свет уже горит, на улице светло.",
       ]),
-      section("Расписания", [
-        "Тип запуска: «по времени» (точное время), «диапазон времени» (в начале включить, в конце выключить), «по закату» и «по рассвету» (с поправкой в минутах, от −180 до +180).",
-        "Правило = тип запуска + время (или диапазон/смещение) + дни недели + действие + зона.",
+      section("Периоды работы (расписания)", [
+        "Расписание — это ПЕРИОД, в котором разрешены действия. Внутри периода обнаружение человека включает устройство на «держать» и затем выключает; вне периода действия не выполняются.",
+        "Типы периода: «по времени» (например 19:00 → 07:00, переход через полночь поддержан), «с заката до рассвета», «с рассвета до заката». Закат и рассвет считает Home Assistant по координатам, смещения задаются в минутах.",
+        "Дни недели относятся к дню начала периода. Если периодов нет — ограничений нет (круглосуточно).",
+        "В конце периода интеграция принудительно выключает то, что включила сама.",
         "Проверка каждые 20 секунд; срабатывание проходит те же проверки (запреты, «не беспокоить», пауза).",
         "Догон пропущенного: если HA был выключен, событие выполнится, пока опоздание меньше «догон, мин» (по умолчанию 360), иначе пометится пропущенным.",
         "Кнопка «Запустить» и сервис run_schedule позволяют выполнить правило вручную.",
