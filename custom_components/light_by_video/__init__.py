@@ -9,7 +9,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.util import dt as dt_util
 
 from .actions import ActionEngine
 from .const import DOMAIN
@@ -53,6 +52,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     store[f"actions:{entry.entry_id}"] = actions
     runner = ScheduleRunner(hass, entry, settings, actions, coordinator)
     coordinator.schedule_runner = runner
+    actions.schedule_runner = runner
     store[f"runner:{entry.entry_id}"] = runner
 
     await _async_register_http(hass)
@@ -86,11 +86,11 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             vol.Optional("entry_id"): cv.string,
             vol.Optional("zone_id"): cv.string,
             vol.Optional("seconds"): vol.All(vol.Coerce(int), vol.Range(min=5, max=86400)),
+            vol.Optional("ignore_window"): cv.boolean,
         }
     )
     schema_stop = vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("entity"): cv.string})
     schema_reset = vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("zone_id"): cv.string})
-    schema_schedule = vol.Schema({vol.Optional("entry_id"): cv.string, vol.Required("schedule_id"): cv.string})
 
     async def _trigger(call) -> None:
         coordinator = _pick_coordinator(hass, call.data.get("entry_id"))
@@ -104,7 +104,11 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             return
         if call.data.get("seconds"):
             zone = {**zone, "hold_sec": int(call.data["seconds"])}
-        await coordinator.actions.async_trigger(zone, {"service": "trigger"})
+        await coordinator.actions.async_trigger(
+            zone,
+            {"service": "trigger"},
+            respect_window=not bool(call.data.get("ignore_window")),
+        )
         await coordinator.async_request_refresh()
 
     async def _stop(call) -> None:
@@ -116,20 +120,6 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             await coordinator.actions.async_stop(str(entity))
         else:
             await coordinator.actions.async_stop_all("сервис stop")
-        await coordinator.async_request_refresh()
-
-    async def _run_schedule(call) -> None:
-        coordinator = _pick_coordinator(hass, call.data.get("entry_id"))
-        if coordinator is None:
-            return
-        runner = getattr(coordinator, "schedule_runner", None)
-        schedule_id = str(call.data.get("schedule_id") or "")
-        if runner is None or not schedule_id:
-            return
-        sched = next((x for x in runner.settings.schedules if x.get("id") == schedule_id), None)
-        if sched is None:
-            return
-        await runner._async_run(sched, dt_util.now(), 0.0)
         await coordinator.async_request_refresh()
 
     async def _reset(call) -> None:
@@ -147,7 +137,6 @@ async def _async_register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "trigger", _trigger, schema=schema_trigger)
     hass.services.async_register(DOMAIN, "stop", _stop, schema=schema_stop)
     hass.services.async_register(DOMAIN, "reset_cooldown", _reset, schema=schema_reset)
-    hass.services.async_register(DOMAIN, "run_schedule", _run_schedule, schema=schema_schedule)
 
 
 async def _async_register_http(hass: HomeAssistant) -> None:
