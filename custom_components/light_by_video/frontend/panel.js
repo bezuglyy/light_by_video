@@ -153,6 +153,15 @@ class LightByVideoPanel extends HTMLElement {
       .zone .size { position:absolute; right:0; bottom:-18px; font-size:11px; white-space:nowrap;
                     background:rgba(13,17,23,.8); color:#e6edf3; padding:1px 4px; border-radius:4px; }
       .zone.selected { outline:1px solid #e6edf3; }
+      .polys { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+      .polys polygon { fill:rgba(88,166,255,.10); stroke:#58a6ff; stroke-width:2px; vector-effect:non-scaling-stroke; }
+      .polys polygon.ignore { stroke:#8b949e; fill:rgba(139,148,158,.10); stroke-dasharray:6 4; }
+      .polys polygon.active { stroke:#f85149; fill:rgba(248,81,73,.14); }
+      .vtx, .mid { position:absolute; width:12px; height:12px; margin:-6px 0 0 -6px; border-radius:50%;
+                   background:#58a6ff; border:1px solid #0d1117; cursor:grab; pointer-events:auto; }
+      .vtx:hover { background:#e6edf3; }
+      .mid { width:9px; height:9px; margin:-4.5px 0 0 -4.5px; background:transparent; border:1px dashed #e6edf3;
+             border-radius:2px; cursor:copy; opacity:.85; }
       .obj { position:absolute; border:1px dashed #f0c419; box-sizing:border-box; pointer-events:none; }
       .obj .otag { position:absolute; left:0; top:-16px; font-size:10px; background:rgba(13,17,23,.85);
                    color:#f0c419; padding:0 4px; border-radius:3px; white-space:nowrap; }
@@ -323,16 +332,55 @@ class LightByVideoPanel extends HTMLElement {
     });
   }
 
+  _zonePoints(zone) {
+    if (Array.isArray(zone.points) && zone.points.length >= 3) return zone.points.map((p) => [p[0], p[1]]);
+    return [
+      [zone.x, zone.y],
+      [zone.x + zone.w, zone.y],
+      [zone.x + zone.w, zone.y + zone.h],
+      [zone.x, zone.y + zone.h],
+    ];
+  }
+
   _paintZones() {
     if (!this._overlay || this._dragging) return;
     this._overlay.innerHTML = "";
     const settings = this._state?.settings;
     if (!settings) return;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "polys");
+    svg.setAttribute("viewBox", "0 0 1 1");
+    svg.setAttribute("preserveAspectRatio", "none");
+    this._overlay.append(svg);
+
     const states = {};
     (this._state.zone_states || []).forEach((z) => (states[z.id] = z));
+
     for (const zone of settings.zones) {
       const st = states[zone.id] || {};
-      const node = h("div", "zone" + (zone.role === "ignore" ? " ignore" : "") + (st.active ? " active" : ""));
+      const isPoly = Array.isArray(zone.points) && zone.points.length >= 3;
+      const cls = (zone.role === "ignore" ? " ignore" : "") + (st.active ? " active" : "");
+
+      if (isPoly) {
+        const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+        poly.setAttribute("points", zone.points.map((pt) => `${pt[0]},${pt[1]}`).join(" "));
+        poly.setAttribute("class", cls.trim());
+        poly.dataset.id = zone.id;
+        poly.style.pointerEvents = "auto";
+        poly.onmousedown = (ev) => this._startMove(ev, zone);
+        svg.append(poly);
+        const label = h("div", "tag");
+        label.textContent = `${zone.name}${st.ratio !== undefined ? " · " + pct(st.ratio) : ""}`;
+        label.style.left = zone.x * 100 + "%";
+        label.style.top = zone.y * 100 + "%";
+        label.style.position = "absolute";
+        label.style.pointerEvents = "none";
+        this._overlay.append(label);
+        if (zone.id === this._selected) this._paintVertices(zone);
+        continue;
+      }
+
+      const node = h("div", "zone" + cls);
       node.dataset.id = zone.id;
       node.style.left = zone.x * 100 + "%";
       node.style.top = zone.y * 100 + "%";
@@ -347,20 +395,68 @@ class LightByVideoPanel extends HTMLElement {
         hd.dataset.dir = dir;
         node.append(hd);
       }
-      node.onmousedown = (ev) => {
-        ev.stopPropagation();
-        this._selected = zone.id;
-        this._paintZoneSelection();
-        const rect = this._stage.getBoundingClientRect();
-        const start = this._rel(ev, rect);
-        const dir = ev.target?.dataset?.dir || "";
-        this._dragging = true;
-        this._drag = { mode: dir ? "resize" : "move", dir, start, id: zone.id, orig: { ...zone } };
-        ev.preventDefault();
-      };
+      node.onmousedown = (ev) => this._startMove(ev, zone);
       this._overlay.append(node);
     }
     this._paintZoneSelection();
+    this._paintObjects();
+  }
+
+  _startMove(ev, zone) {
+    ev.stopPropagation();
+    this._selected = zone.id;
+    this._paintZoneSelection();
+    const rect = this._stage.getBoundingClientRect();
+    const start = this._rel(ev, rect);
+    const dir = ev.target?.dataset?.dir || "";
+    this._dragging = true;
+    this._drag = { mode: dir ? "resize" : "move", dir, start, id: zone.id, orig: { ...zone } };
+    ev.preventDefault();
+  }
+
+  _paintVertices(zone) {
+    const pts = this._zonePoints(zone);
+    pts.forEach((pt, idx) => {
+      const v = h("div", "vtx");
+      v.style.left = pt[0] * 100 + "%";
+      v.style.top = pt[1] * 100 + "%";
+      v.dataset.idx = idx;
+      v.title = "тянуть — двигать вершину; правый клик — удалить";
+      v.onmousedown = (ev) => {
+        ev.stopPropagation();
+        const rect = this._stage.getBoundingClientRect();
+        this._dragging = true;
+        this._drag = { mode: "vertex", id: zone.id, idx, start: this._rel(ev, rect), points: this._zonePoints(zone) };
+        ev.preventDefault();
+      };
+      v.oncontextmenu = (ev) => {
+        ev.preventDefault();
+        if (pts.length <= 3) return;
+        const next = pts.filter((_, i) => i !== idx);
+        this._saveZone(zone.id, { points: next });
+      };
+      this._overlay.append(v);
+    });
+    // середины рёбер — вставить вершину
+    pts.forEach((pt, idx) => {
+      const nxt = pts[(idx + 1) % pts.length];
+      const m = h("div", "mid");
+      m.style.left = ((pt[0] + nxt[0]) / 2) * 100 + "%";
+      m.style.top = ((pt[1] + nxt[1]) / 2) * 100 + "%";
+      m.title = "нажмите — добавить вершину";
+      m.onmousedown = (ev) => {
+        ev.stopPropagation();
+        const arr = this._zonePoints(zone);
+        const nx = (arr[idx][0] + arr[(idx + 1) % arr.length][0]) / 2;
+        const ny = (arr[idx][1] + arr[(idx + 1) % arr.length][1]) / 2;
+        arr.splice(idx + 1, 0, [nx, ny]);
+        const rect = this._stage.getBoundingClientRect();
+        this._dragging = true;
+        this._drag = { mode: "vertex", id: zone.id, idx: idx + 1, start: this._rel(ev, rect), points: arr };
+        ev.preventDefault();
+      };
+      this._overlay.append(m);
+    });
   }
 
   _paintObjects() {
@@ -397,6 +493,21 @@ class LightByVideoPanel extends HTMLElement {
       const hh = Math.abs(pos.y - d.start.y);
       d.box = { x, y, w, h: hh };
       this._drawPreview(d.box);
+      return;
+    }
+    if (d.mode === "vertex") {
+      if (!d.points) {
+        const zone = (this._state.settings.zones || []).find((z) => z.id === d.id) || {};
+        d.points = this._zonePoints(zone);
+      }
+      d.points[d.idx] = [Math.min(1, Math.max(0, pos.x)), Math.min(1, Math.max(0, pos.y))];
+      const poly = this._overlay.querySelector(`polygon[data-id="${d.id}"]`);
+      if (poly) poly.setAttribute("points", d.points.map((pt) => `${pt[0]},${pt[1]}`).join(" "));
+      this._overlay.querySelectorAll(".vtx").forEach((v) => {
+        if (Number(v.dataset.idx) !== d.idx) return;
+        v.style.left = d.points[d.idx][0] * 100 + "%";
+        v.style.top = d.points[d.idx][1] * 100 + "%";
+      });
       return;
     }
     const node = this._overlay.querySelector(`.zone[data-id="${d.id}"]`);
@@ -463,6 +574,16 @@ class LightByVideoPanel extends HTMLElement {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "add", zone: { ...box, name: "Новая зона", role: "motion" } }),
+        });
+      } else if (d.mode === "vertex") {
+        if (!d.points) {
+          this._paintZones();
+          return;
+        }
+        await this._api("/zone", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "save", id: d.id, zone: { points: d.points } }),
         });
       } else {
         if (!d.current) {
@@ -628,6 +749,7 @@ class LightByVideoPanel extends HTMLElement {
           this._number(zone.sensitivity, (v) => this._saveZone(zone.id, { sensitivity: v }), { min: 0.2, max: 5, step: 0.1 })
         ),
         this._row("Сущность", this._checkbox(zone.entity, (v) => this._saveZone(zone.id, { entity: v }))),
+        this._row("Форма", this._shapeButtons(zone)),
         this._row("X, %", this._number((zone.x * 100).toFixed(1), (v) => this._saveZone(zone.id, { x: Number(v) / 100 }), { min: 0, max: 100, step: 0.5 })),
         this._row("Y, %", this._number((zone.y * 100).toFixed(1), (v) => this._saveZone(zone.id, { y: Number(v) / 100 }), { min: 0, max: 100, step: 0.5 })),
         this._row("Ширина, %", this._number((zone.w * 100).toFixed(1), (v) => this._saveZone(zone.id, { w: Number(v) / 100 }), { min: 1, max: 100, step: 0.5 })),
@@ -669,6 +791,32 @@ class LightByVideoPanel extends HTMLElement {
     });
     await this._tick();
     this._paintPane();
+  }
+
+  _shapeButtons(zone) {
+    const isPoly = Array.isArray(zone.points) && zone.points.length >= 3;
+    const wrap = h("div", "row");
+    wrap.style.margin = "0";
+    if (!isPoly) {
+      const toPoly = h("button", "act", "⬡ В многоугольник");
+      toPoly.onclick = () => {
+        const pts = [
+          [zone.x, zone.y],
+          [zone.x + zone.w, zone.y],
+          [zone.x + zone.w, zone.y + zone.h],
+          [zone.x, zone.y + zone.h],
+        ];
+        this._saveZone(zone.id, { points: pts });
+      };
+      wrap.append(toPoly);
+      wrap.append(h("span", "muted", "потом тяните вершины на кадре"));
+    } else {
+      const toRect = h("button", "act", "▭ В прямоугольник");
+      toRect.onclick = () => this._saveZone(zone.id, { points: null });
+      wrap.append(toRect);
+      wrap.append(h("span", "muted", `${zone.points.length} вершин · правый клик по вершине удаляет · пунктирный квадрат добавляет`));
+    }
+    return wrap;
   }
 
   _paneAction() {
