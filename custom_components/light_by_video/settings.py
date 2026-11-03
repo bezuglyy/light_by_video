@@ -14,11 +14,14 @@ from .const import (
     CONF_DETECTOR,
     CONF_ENABLED,
     CONF_GO2RTC_BASE,
+    CONF_INTERLOCKS,
     CONF_MUTE_UNTIL,
     CONF_NOTIFY,
     CONF_SCAN_INTERVAL,
     CONF_SNAPSHOT_URL,
     CONF_SOURCE_PASS,
+    CONF_SUN_ENTITY,
+    CONF_SUN_OFFSET,
     CONF_SOURCE_USER,
     CONF_ZONES,
     DAYS_ALL,
@@ -29,6 +32,9 @@ from .const import (
     DOMAIN,
     HOLD_MAX,
     HOLD_MIN,
+    INTERLOCK_MODES,
+    INTERLOCK_OPS,
+    MAX_INTERLOCKS,
     MAX_ON_MIN,
     MAX_ZONES,
     ROLE_MOTION,
@@ -95,6 +101,31 @@ def normalize_zone(zone: dict[str, Any], index: int) -> dict[str, Any]:
     }
 
 
+def normalize_interlock(rule: dict[str, Any], index: int) -> dict[str, Any]:
+    """Правило запрета: сущность + условие + режим (запрещать/предупреждать)."""
+    op = str(rule.get("op") or "is_on")
+    if op not in INTERLOCK_OPS:
+        op = "is_on"
+    mode = str(rule.get("mode") or "block")
+    if mode not in INTERLOCK_MODES:
+        mode = "block"
+    value = rule.get("value")
+    try:
+        fvalue = float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        fvalue = None
+    return {
+        "id": str(rule.get("id") or f"i{index}"),
+        "name": str(rule.get("name") or f"Запрет {index}"),
+        "entity": str(rule.get("entity") or "").strip(),
+        "attribute": str(rule.get("attribute") or "").strip(),
+        "op": op,
+        "value": fvalue,
+        "mode": mode,
+        "enabled": bool(rule.get("enabled", True)),
+    }
+
+
 def _parse_dt(value: str):
     """ISO-строка -> aware datetime (или None)."""
     text = (value or "").strip()
@@ -139,6 +170,15 @@ def normalize_detector(detector: dict[str, Any] | None) -> dict[str, Any]:
         if key in ("mode", "objects_url", "objects_classes"):
             out[key] = str(value)
             continue
+        if key == "objects_min_h":
+            try:
+                out[key] = max(0.0, min(1.0, float(value)))
+            except (TypeError, ValueError):
+                pass
+            continue
+        if key in ("mode", "objects_url", "objects_classes"):
+            out[key] = str(value)
+            continue
         if key in ("objects_require_motion", "objects_only_on_motion"):
             out[key] = bool(value)
             continue
@@ -152,6 +192,8 @@ def normalize_detector(detector: dict[str, Any] | None) -> dict[str, Any]:
                 "quiet_frames",
                 "objects_cache_ms",
                 "objects_idle_cache_ms",
+                "objects_tiling",
+                "objects_width",
             ):
                 out[key] = int(value)
             else:
@@ -170,6 +212,12 @@ def normalize_detector(detector: dict[str, Any] | None) -> dict[str, Any]:
     out["objects_classes"] = str(out.get("objects_classes") or "0,1,2,3,5,7").strip()
     out["objects_conf"] = max(0.05, min(0.99, float(out.get("objects_conf") or 0.35)))
     out["objects_cache_ms"] = max(200, min(10000, int(out.get("objects_cache_ms") or 700)))
+    out["objects_tiling"] = max(1, min(3, int(out.get("objects_tiling") or 1)))
+    out["objects_width"] = max(0, min(1920, int(out.get("objects_width") or 0)))
+    try:
+        out["objects_min_h"] = max(0.0, min(1.0, float(out.get("objects_min_h") or 0.0)))
+    except (TypeError, ValueError):
+        out["objects_min_h"] = 0.0
     out["objects_timeout"] = max(0.5, min(15.0, float(out.get("objects_timeout") or 4.0)))
     return out
 
@@ -193,6 +241,15 @@ class Settings:
         self.source_pass = str(merged.get(CONF_SOURCE_PASS) or "")
         self.scan_interval = _num(merged.get(CONF_SCAN_INTERVAL), DEFAULT_SCAN_INTERVAL, 1.0, 30.0)
         self.enabled = bool(merged.get(CONF_ENABLED, True))
+        self.sun_entity = str(merged.get(CONF_SUN_ENTITY) or "sun.sun").strip() or "sun.sun"
+        try:
+            self.sun_offset_min = max(-180, min(180, int(merged.get(CONF_SUN_OFFSET) or 0)))
+        except (TypeError, ValueError):
+            self.sun_offset_min = 0
+        rules = merged.get(CONF_INTERLOCKS)
+        self.interlocks = [
+            normalize_interlock(r, i + 1) for i, r in enumerate(rules or []) if isinstance(r, dict)
+        ][:MAX_INTERLOCKS]
         self.mute_until_raw = str(merged.get(CONF_MUTE_UNTIL) or "")
         self.mute_until = _parse_dt(self.mute_until_raw)
         self.detector = normalize_detector(merged.get(CONF_DETECTOR))
@@ -236,6 +293,17 @@ class Settings:
                 options[key] = bool(value)
             elif key == CONF_MUTE_UNTIL:
                 options[key] = str(value or "")
+            elif key == CONF_INTERLOCKS and isinstance(value, list):
+                options[CONF_INTERLOCKS] = [
+                    normalize_interlock(r, i + 1) for i, r in enumerate(value) if isinstance(r, dict)
+                ][:MAX_INTERLOCKS]
+            elif key == CONF_SUN_ENTITY:
+                options[key] = str(value or "sun.sun")
+            elif key == CONF_SUN_OFFSET:
+                try:
+                    options[key] = max(-180, min(180, int(value)))
+                except (TypeError, ValueError):
+                    options[key] = 0
             elif key == CONF_SCAN_INTERVAL:
                 options[key] = _num(value, DEFAULT_SCAN_INTERVAL, 1.0, 30.0)
         self.hass.config_entries.async_update_entry(self.entry, options=options)
@@ -251,6 +319,9 @@ class Settings:
             "scan_interval": self.scan_interval,
             "enabled": self.enabled,
             "mute_until": self.mute_until_raw,
+            "sun_entity": self.sun_entity,
+            "sun_offset_min": self.sun_offset_min,
+            "interlocks": self.interlocks,
             "detector": self.detector,
             "zones": copy.deepcopy(self.zones),
             "notify": dict(self.notify),
